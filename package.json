@@ -1,0 +1,43 @@
+{
+  "name": "svgeomin",
+  "version": "0.1.0",
+  "description": "",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/herrstrietzel/svgeomin.git"
+  },
+  "keywords": [],
+  "author": "herrstrietzel",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/herrstrietzel/svgeomin/issues"
+  },
+  "homepage": "https://github.com/herrstrietzel/svgeomin#readme",
+  "main": "./dist/svgeomin.node.js",
+  "module": "./dist/svgeomin.esm.js",
+  "browser": "./dist/svgeomin.js",
+  "exports": {
+    ".": {
+      "import": "./dist/svgeomin.esm.js",
+      "require": "./dist/svgeomin.node.js"
+    },
+    "./dist/svgeomin.esm.js": "./dist/svgeomin.esm.js",
+    "./dist/svgeomin.js": "./dist/svgeomin.js",
+    "./dist/svgeomin.min.js": "./dist/svgeomin.min.js"
+  },
+  "type": "module",
+  "scripts": {
+    "build": "rollup -c",
+    "watch": "rollup -c --watch",
+    "test": "node test.js"
+  },
+  "devDependencies": {
+    "@rollup/plugin-terser": "^1.0.0",
+    "concurrently": "^9.2.1",
+    "rollup": "^3.29.5",
+    "rollup-plugin-copy": "^3.5.0"
+  },
+  "dependencies": {
+    "terser": "^5.39.0"
+  }
+}

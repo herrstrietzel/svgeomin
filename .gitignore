@@ -1,0 +1,7 @@
+__backup
+__log
+__todo
+__testfiles
+__tests
+gitnore
+node_modules

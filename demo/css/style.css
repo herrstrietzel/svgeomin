@@ -1,0 +1,19 @@
+svg {
+  display: block;
+  height: 800px;
+  width: auto;
+  outline: 1px solid #ccc;
+}
+
+path {
+  fill-opacity: 0.5;
+  stroke-opacity: 0.5;
+  stroke-width: 1px;
+}
+
+.svg-geo-label {
+  font-size: 10px;
+  text-anchor: middle;
+  dominant-baseline: middle;
+  font-family: sans-serif;
+}/*# sourceMappingURL=style.css.map */
