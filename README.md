@@ -42,8 +42,8 @@ To put it differently:
 ## Usage
 
 Svgeomin can be loaded as IIFE or ESM module.
+For testing you can require it via CDN e.g.
 
-For testing you can require it via CDN e.g
 
 ### CDN
 
@@ -54,9 +54,11 @@ For testing you can require it via CDN e.g
 ```
 **ESM**  
 ```js
-import potracePlus from 'https://cdn.jsdelivr.net/npm/potrace-plus@latest/+esm'
+import { svgFromGeo } from "https://cdn.jsdelivr.net/npm/svgeomin@latest/dist/svgeomin.esm.min.js";
 ```
 
+### Todos
+* Node.js is currently not supported as some helpers require DOM Parser API.
 
 ### Basic example: render from src URL
 
@@ -154,13 +156,21 @@ When applying polygon simplification algorithms (e.g Ramer Douglas Peucker) on a
 
 To prevent this we first analyze the topology of all filtered features to detect shared polygon arcs to ensure a consistent edge simplification.
 
-### ... erm, but I still see tiny gaps?
+### erm, but I still see tiny gaps?
 1. The aforementioned topology simplification takes for granted the GeoData itself doesn't have any gaps
 2. if you notice thin hairlines in SVG rendering: it is simply due to sub-pixel rendering. Anti-aliasing will inevitable produce tiny gaps due to pixel-grid fitting problems. 
 
 **Quick fix** 
 * Apply a thin stroke to your paths
 * disable anti-aliasing via SVG [`shape-rendering`](https://developer.mozilla.org/en-US/docs/Web/SVG/Reference/Attribute/shape-rendering) attribute: `shape-rendering="crispEdges"` should do the trick.
+
+## Demos
+*   [SVG from GeoJson (basic)](https://herrstrietzel.github.io/svgeomin/demo/basic.html) [codepen](https://codepen.io/herrstrietzel/pen/XJMXNxN?editors=1010)
+*   [Apply options: filter and simplify](https://herrstrietzel.github.io/svgeomin/demo/options.html)
+*   [filtered and add markers](https://herrstrietzel.github.io/svgeomin/demo/filtered_features_markers.html)
+*   [Get filtered and minified GeoJson (only selected features)](https://herrstrietzel.github.io/svgeomin/demo/filter_geojson.html)
+*   [SVG to GeoJson (reverse projection)](https://herrstrietzel.github.io/svgeomin/demo/svg2geo.html)
+*   [Geosearch helper (find lon/lat, show geojson on map)](https://herrstrietzel.github.io/svgeomin/demo/geosearch.html)
 
 
 ## Credits
