@@ -33,6 +33,7 @@
   + [Basic example: render from src URL](#basic-example-render-from-src-url)
   + [With options: Filter features and simplify](#with-options-filter-features-and-simplify)
 * [Options](#options)
+* [SVGEO object and API methods](#svgeo-object-and-api-methods)
 * [Topology aware simplification](#topology-aware-simplification)
   + [erm, but I still see tiny gaps?](#erm-but-i-still-see-tiny-gaps)
 * [Demos](#demos)
@@ -146,7 +147,7 @@ See [demo/options.html](https://herrstrietzel.github.io/svgeomin/demo/options.ht
 
 ## Options
 
-| method | type/arguments | description | default/values |
+| parameter | type | description | default/values |
 |--|--|--|--|
 |features|array|features to filter|empty|
 |properties|array|properties to include in filtered Geojson and SVG output|empty|
@@ -159,7 +160,7 @@ See [demo/options.html](https://herrstrietzel.github.io/svgeomin/demo/options.ht
 |classPre|string|CSS classname prefix for SVG elements |'svgeomin'|
 |css|string|append CSS `<style>` element to SVG |''|
 |cssInline|string|main svg inline css |''|
-|projection|string: `mercator`,`miller`, `equirectangular` (Plate carrée), `behrmann` |projection method. See [wikipedia: List of map projections](https://en.wikipedia.org/wiki/List_of_map_projections)  |'mercator' (Web Mercator)|
+|projection|string |changes projection method | 'mercator' (Web Mercator). `mercator`,`miller`, `equirectangular` (Plate carrée), `behrmann` |projection method. See [wikipedia: List of map projections](https://en.wikipedia.org/wiki/List_of_map_projections) |
 |markers|array| add map markers to SVG |empty|
 |**marker params**|| ||
 |lon|number| longitude |0|
@@ -174,6 +175,57 @@ See [demo/options.html](https://herrstrietzel.github.io/svgeomin/demo/options.ht
 When applying polygon simplification algorithms (e.g Ramer Douglas Peucker) on adjacent/neighboring polygons we often get gaps between shapes. 
 
 To prevent this we first analyze the topology of all filtered features to detect shared polygon arcs to ensure a consistent edge simplification.
+
+## SVGEO object and API methods
+Once you parsed the geoJson via `svgFromGeo()` an object is created which allows further processing:
+
+```js 
+// init object
+const SVGEO = await svgFromGeo(geoDataUrl, options);
+
+// retrieve properties directly from object
+let { svg, bb, x, y, bbGeo, scale, size } = SVGEO;
+
+// render
+SVGEO.render(svgeoWrap)
+
+// get GeoJson
+let geojsonOptions = {
+    // round to decimals
+    decimals:4,
+
+    // name for feature collection
+    name: 'svgeomin',
+
+    // properties to include
+    properties:[],
+}
+let geojson = SVGEO.getGeoJson(geojsonOptions)
+
+/**
+ * get object or data 
+ * URLs for download
+ */
+let urlOptions = {
+    // return svg or json
+    data='svg',
+
+    //round to decimals
+    decimals=3
+
+    // return dataURL or object URL
+    dataUrl=true,
+
+    // add width and height attributes for SVG
+    addDimensions=true
+
+    // add SVG xlink namespace for legacy apps
+    addXlink=false
+
+}
+let dataUrl = SVGEO.getUrl(urlOptions)
+
+```
 
 ### erm, but I still see tiny gaps?
 1. The aforementioned topology simplification takes for granted the GeoData itself doesn't have any gaps
@@ -206,8 +258,3 @@ To prevent this we first analyze the topology of all filtered features to detect
 ### Related projects
 * [poly-simplify](https://github.com/herrstrietzel/poly-simplify): Simplify/reduce polylines/polygon vertices in JS
 * [svg-path-simplify](https://github.com/herrstrietzel/svg-path-simplify): Simplify SVG Bézier paths while maintaining their shape
-
-
-
-
-

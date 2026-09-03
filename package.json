@@ -1,6 +1,6 @@
 {
   "name": "svgeomin",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Create compact map SVGs and GeoJson subsets",
   "repository": {
     "type": "git",
@@ -18,9 +18,11 @@
   "browser": "./dist/svgeomin.js",
   "exports": {
     ".": {
-      "import": "./dist/svgeomin.esm.js"
+      "import": "./dist/svgeomin.esm.min.js",
+      "default": "./dist/svgeomin.esm.js"
     },
     "./dist/svgeomin.esm.js": "./dist/svgeomin.esm.js",
+    "./dist/svgeomin.esm.js": "./dist/svgeomin.esm.min.js",
     "./dist/svgeomin.js": "./dist/svgeomin.js",
     "./dist/svgeomin.min.js": "./dist/svgeomin.min.js"
   },
