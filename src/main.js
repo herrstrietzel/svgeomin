@@ -63,8 +63,7 @@ export async function svgFromGeo(geoData = {}, {
     // translate API simplify tolerance to square distance
     if (simplify) {
         simplify = simplify * (1 / 11100)
-        //simplify = Math.sqrt(simplify*0.5) * (1 / 1110)
-        console.log({ simplify });
+        //console.log({ simplify });
     }
 
     // parse and filter geodata
@@ -307,9 +306,6 @@ export async function svgFromGeo(geoData = {}, {
         //console.log({featureArr});
 
     }
-
-
-    console.log({ featureArr });
 
 
 

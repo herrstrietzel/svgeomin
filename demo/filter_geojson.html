@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SVG from GeoJson with options</title>
+
+    <link rel="icon" href="../favicon.svg" type="image/svg+xml">
+
+    <link rel="stylesheet" href="css/style.css">
+    <!-- 
+        <script data-type="module" src="../dist/js/svg-from-geojson.js" defer></script>
+    -->
+    <script type="module" src="js/app_filter_geo.js"></script>
+
+
+    <style>
+        textarea{
+            min-height:12lh;
+            width:100%;
+        }
+    </style>
+
+</head>
+
+<body>
+
+    <!-- render -->
+    <h1>SVG-from-geojson</h1>
+
+    <div id="svgeoWrap">
+    </div>
+
+    <h3>JSON filtered</h3>
+    <textarea  id="textareaJson" ></textarea>
+
+</body>
+
+</html>

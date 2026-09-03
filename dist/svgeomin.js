@@ -1324,7 +1324,6 @@
       if (simplify) {
           simplify = simplify * (1 / 11100);
 
-          console.log({ simplify });
       }
 
       // parse and filter geodata
@@ -1535,8 +1534,6 @@
           featureArr = simplifyPolyGroups(featureArr, polyChunks, simplify, normalizeDirection, protectBB);
 
       }
-
-      console.log({ featureArr });
 
       /**
        * reorder top left to bottom right

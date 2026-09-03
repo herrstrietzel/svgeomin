@@ -239,6 +239,7 @@ let markers = [
 
     let t0 = performance.now();
     let svGeo = await svgFromGeo(geoFiltered, options);
+    //let svGeo = await svgFromGeo(geoDataUrl, options);
     let t1 = +(performance.now() - t0).toFixed(3);
     console.log({ t1 });
     let { svg, bb, x, y, bbGeo, scale, size } = svGeo;
