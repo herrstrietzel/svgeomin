@@ -137,7 +137,6 @@ SVGEO.prototype.getGeoJson = function ({ decimals = -1, name = 'svgeomin', prope
 }
 
 
-
 if (typeof window !== 'undefined') {
     window.svg2GeoJson = svg2GeoJson;
     window.svgFromGeo = svgFromGeo;
