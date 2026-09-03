@@ -1,11 +1,12 @@
 /**
  * Deduplicates and removes collinear points from an integer polygon ring.
- * 
- * @param {Array<Array<number>>} ring - Array of 2D points [[x, y], ...]
- * @param {boolean} [isClosed=true] - Whether the path is closed
- * @returns {Array<Array<number>>} Optimized ring with zero redundant vertices
  */
 export function removeCollinearPoints(ring, isClosed = true) {
+
+    const pointsEqual = (p1, p2) => {
+        return p1[0] === p2[0] && p1[1] === p2[1];
+    }
+
     if (!ring || ring.length < 3) return ring;
 
     // Step 1: Remove adjacent duplicate coordinates
@@ -25,7 +26,7 @@ export function removeCollinearPoints(ring, isClosed = true) {
 
     // Step 2: Multi-pass elimination of collinear points
     let changed = true;
-    
+
     while (changed && pts.length >= 3) {
         changed = false;
         let cleaned = [];
@@ -49,7 +50,7 @@ export function removeCollinearPoints(ring, isClosed = true) {
                 // (and not a sharp 180-degree dead-end spike)
                 let dotProduct = dx1 * dx2 + dy1 * dy2;
                 if (dotProduct >= 0) {
-                    changed = true; 
+                    changed = true;
                     continue;
                 }
             }
@@ -60,14 +61,13 @@ export function removeCollinearPoints(ring, isClosed = true) {
         pts = cleaned;
     }
 
+    /*
     // Step 3: Re-close ring if necessary
     if (isClosed && pts.length > 0) {
         pts.push([...pts[0]]);
     }
+    */
 
     return pts;
 }
 
-function pointsEqual(p1, p2) {
-    return p1[0] === p2[0] && p1[1] === p2[1];
-}

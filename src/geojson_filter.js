@@ -7,23 +7,24 @@ export async function filterGeoData(geoData = {}, {
 
     // fetch and parse geoData
     if (typeof geoData === 'string') {
+        //console.log('is string', geoData);
 
         // is URL
-        if (geoData.includes('.geoData') || geoData.includes('.geogeoData')) {
+        if (geoData.startsWith('https://') || geoData.includes('.json') || geoData.includes('.geojson')) {
             let res = await fetch(geoData);
             if (res.ok) {
-                geoData = await res.geoData()
+                geoData = await res.json()
             }
         }
         // is stringified
         else {
             try {
                 geoData = JSON.parse(geoData);
-                //console.warn('Is stringified');
             } catch {
                 geoData = null;
                 console.warn('No valid geoData input');
             }
+
             // exit: has no relevant data
             if (geoData.features === undefined || geoData.features[0].geometry === undefined) {
                 console.warn('No valid geogeoData input');
@@ -35,8 +36,12 @@ export async function filterGeoData(geoData = {}, {
     // exit
     if (geoData && typeof geoData !== 'object') return;
 
-    // no filters
-    if (!features.length &&!exclude.length) {
+    // check if properties are to filter
+    let propLen = Object.keys(geoData.features[0].properties);
+    let propsToFilter = properties.length && propLen!==properties.length
+
+    // no filters - ready to go
+    if (!features.length &&!exclude.length && !propsToFilter ) {
         //console.log('ready to go!');
         return geoData
     }
@@ -71,6 +76,8 @@ export async function filterGeoData(geoData = {}, {
         }
     });
 
+    //console.log({filterVals});
+
 
     /**
      * normalize features
@@ -93,6 +100,9 @@ export async function filterGeoData(geoData = {}, {
 
             if (allProperties.size) {
                 if (allProperties.has(propLc)) {
+                    propsLc[propLc] = valLc
+                }
+                else if (filterVals.has(valLc)) {
                     propsLc[propLc] = valLc
                 }
             } else {

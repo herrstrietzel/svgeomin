@@ -9,6 +9,11 @@ export function multiPolyToRelativePathData(polys = [], {
     let pathData = [];
     let x = 0;
     let y = 0;
+    
+    // separate sub paths
+    let pathDataArr = [];
+    // collect abssolute M start coordinates 
+    let M_arr = []
 
     for (let i = 0; i < polys.length; i++) {
         let pts = polys[i];
@@ -18,6 +23,7 @@ export function multiPolyToRelativePathData(polys = [], {
 
         // Start point of the current sub-polygon
         let M = pts[0];
+        M_arr.push(M);
 
         // First M
         if (pathData.length === 0) {
@@ -73,88 +79,34 @@ export function multiPolyToRelativePathData(polys = [], {
         pathData.push({ type: 'z', values: [] });
     }
 
-    return pathData;
-}
+    // create sub path array
+    let idx = -1
+    pathData.forEach((com,i)=>{
+        let {type, values} = com;
 
-
-export function multiPolyToRelativePathData__(polys = [], {
-    decimals = -1,
-    toRelative = true,
-    toShorthand = true
-} = {}) {
-
-    // ignore empty polys
-    if (!polys.length) return [];
-
-    // get starting point
-    let M = polys[0].shift();
-    let x = M[0];
-    let y = M[1];
-
-    let pathData = [{ type: 'M', values: [x, y] }];
-    let type = 'l';
-    let values = [];
-    let l = polys.length;
-
-    // sub polys
-    for (let i = 0; i < l; i++) {
-        let pts = polys[i];
-
-        // single point
-        if (pts.length < 3) continue
-
-        for (let j = 0, k = pts.length; j < k; j++) {
-
-            let pt = pts[j];
-            values = [pt[0] - x, pt[1] - y];
-
-            // zero length
-            if (values[0] === 0 && values[1] === 0) {
-                continue
-            }
-
-            // new subpath M
-            if (i > 0 && j === 0) {
-                //pathData.push({ type: 'z', values: [] });
-                //[x,y]= M;
-                //values = [M[0] - x, M[1] - y];
-                type = 'm';
-            }
-            // relative lineto
-            else {
-                // v shorthand
-                if (values[0] === 0) {
-                    type = 'v';
-                    values = [values[1]]
-                }
-                // h shorthand
-                else if (values[1] === 0) {
-                    type = 'h';
-                    values = [values[0]]
-
-                }
-                // relative lineto
-                else {
-                    type = 'l';
-                }
-            }
-
-            // add to relative path data
-            pathData.push({ type, values })
-
-            // update offsets
-            x = pt[0]
-            y = pt[1]
-
+        // round
+        if(decimals>0){
+            values = values.length ? 
+            values.map(val=>+val.toFixed(decimals)) : 
+            values;
+            pathData[i].values = values
         }
-    }
 
-    // final close path
-    pathData.push({ type: 'z', values: [] })
-    //console.log( 'pathData:', JSON.parse(JSON.stringify(pathData))  );
+        if(type.toLowerCase()==='m'){
+            idx++
+            type='M'
+            values=M_arr[idx]
+            pathDataArr.push([])
+        }
 
-    return pathData;
+        pathDataArr[idx].push({type, values})
+    })
+
+    //console.log({pathData, pathDataArr});
+
+    return {pathData, pathDataArr};
 }
+
 
 
 export function serializePathData(pathData = []) {

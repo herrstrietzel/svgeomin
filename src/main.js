@@ -1,73 +1,18 @@
 import { projectPointArr } from './geometry_geo.js';
 import { multiPolyToRelativePathData, serializePathData } from './pathData_from_multipoly.js';
 import { removeCollinearPoints } from './simplifyRC_poly.js'
-import { getPolygonArea_arr, getPolyBBox_arr, getDistManhattan_arr } from './geometry_arr.js';
+import { getPolygonArea_arr, getPolyBBox_arr, getDistManhattan_arr, getSphericalArea } from './geometry_arr.js';
 import { removeZeroLength } from './simplifyZero.js';
 import { getPolyChunks } from './analyze_get_poly_group_chunks.js';
 import { simplifyPolyGroups } from './simplifyTopology.js';
 import { filterGeoData } from './geojson_filter.js';
-
+import { getMarkerSVGMarkup } from './render_svg_markers.js';
 
 
 // object for chainable methods
 export function SVGEO(props = {}) {
     Object.assign(this, props)
 }
-
-
-
-SVGEO.prototype.getGeoJson = function ({ decimals = -1, name = 'svgeomin', properties=[] } = {}) {
-    let geogeoData = {
-        type: "FeatureCollection",
-        name,
-        features: [],
-    }
-
-    //let featuresFiltered = this.featureArr;
-    let propertiesFiltered = properties;
-    //console.log({featuresNew});
-
-    for (let feature of this.featureArr) {
-        let { properties, polys } = feature
-        //console.log(properties, polys);
-
-        let type = polys.length > 1 ? "MultiPolygon" : "Polygon";
-
-        //round
-        if (decimals > -1) {
-            polys = polys.map(poly => poly.map(pt => pt.map(val => +val.toFixed(decimals))))
-        }
-
-        let polysN = type === 'MultiPolygon' ? polys.map(poly => [poly]) : polys;
-
-        //console.log({type, polysN});
-
-        let propertiesN = {}
-        for(let prop in properties){
-            if(propertiesFiltered.length && propertiesFiltered.includes(prop)){
-                propertiesN[prop] = properties[prop]
-            }
-        }
-
-        let featureN = {
-            type: 'Feature',
-            properties:propertiesN,
-            geometry: {
-                type,
-                coordinates:
-                    polysN
-            }
-        }
-        geogeoData.features.push(featureN)
-    }
-
-
-
-    return geogeoData
-
-}
-
-
 
 
 export async function svgFromGeo(geoData = {}, {
@@ -79,26 +24,57 @@ export async function svgFromGeo(geoData = {}, {
     exclude = [],
     // scale to reasonable coordinate space
     scale = 10000,
-    // rounding: integers are best!
+
+    // autoscale tiny features
+    //autoScale = true,
+
+    // coordinate rounding: integers are best!
     decimals = 0,
-    // square distance threshold for RDP simplification
+    // threshold for RDP simplification in km
     simplify = 0,
-    // remove small islands or enclaves
-    removeIslands = 0,
-    wrapEast = 0,
-    projection = 'mercator'
+
+    // remove small feautes e.g islands or exclaves by km² threshold
+    minArea = 0,
+
+    // create path el for each sub poly e.g islands
+    split = 0,
+
+    // add meta for original geodata reference
+    meta = 1,
+
+    // CSS prefix
+    classPre = 'svgmin',
+
+    projection = 'mercator',
+
+
+    // add map markers
+    markers=[],
+
+    // append CSS
+    css='',
+
+    // main svg inline css
+    cssInline=''
+
 } = {}) {
 
 
+    // translate API simplify tolerance to square distance
+    if (simplify) {
+        simplify = simplify * (1 / 11100)
+        //simplify = Math.sqrt(simplify*0.5) * (1 / 1110)
+        console.log({ simplify });
+    }
 
     // parse and filter geodata
-    geoData = await filterGeoData(geoData, {features, properties, exclude});
+    geoData = await filterGeoData(geoData, { features, properties, exclude });
 
     // normalize projection type to lowercase
     projection = projection.toLowerCase();
 
     // for approximated area calc
-    let maxPts = 0
+    let maxPts = 96
 
     let geoFeatures = geoData.features
 
@@ -120,38 +96,11 @@ export async function svgFromGeo(geoData = {}, {
     for (let item of geoFeatures) {
 
         let polys = [];
+        let areas = [];
         let position = {};
         let { bbox = [], geometry, properties } = item;
         let { coordinates } = geometry;
         let type = geometry.type
-
-
-        //bbox = [];
-        if (!bbox.length) {
-            let coordsFlat = coordinates.flat(3)
-            let lonArr = coordsFlat.filter((val, i) => i % 2 === 0)
-            let latArr = coordsFlat.filter((val, i) => i % 2 !== 0)
-            bbox = [Math.min(...lonArr), Math.min(...latArr), Math.max(...lonArr), Math.max(...latArr)]
-            //console.log('manual', bbox, lonArr);
-        }
-
-        //console.log(item);
-
-        let [lonMin, latMin, lonMax, latMax] = bbox;
-        lonArr.push(lonMin, lonMax);
-        latArr.push(latMin, latMax);
-
-        /**
-         * projected Mercator 
-         * bbox for svg viewBox
-         */
-        let bbM = projectPointArr([[bbox[0], bbox[1]], [bbox[2], bbox[3]]], projection, scale, decimals);
-
-        // poly get position for reordering
-        let left = Math.min(bbM[0][0], bbM[1][0])
-        let top = Math.min(bbM[0][1], bbM[1][1])
-        position = { top, left }
-        let areas = [];
 
         //console.log({left, top});
 
@@ -160,8 +109,8 @@ export async function svgFromGeo(geoData = {}, {
             // normalize complex poly nesting
             let pts = type === 'MultiPolygon' ? sub[0] : sub;
 
-            // get area
-            let area = removeIslands ? getPolygonArea_arr(pts, true, maxPts) : 0
+            // get sloppy area approximation
+            let area = minArea ? getSphericalArea(pts, true, maxPts) : 0
             areas.push(area);
 
 
@@ -170,15 +119,14 @@ export async function svgFromGeo(geoData = {}, {
              * < lon 178
              * e.g russia
              */
-            /*
-            if (wrapEast) {
-                if (pts[0][0] < wrapEast) {
-                    pts.forEach(pt => {
-                        pt[0] += 360
-                    })
-                }
+            let autoWrap = geoFeatures.length == 1 && bbox[0] < 0 && bbox[2] > 0;
+
+            if (autoWrap) {
+                //console.log('shift', lonShift);
+                pts.forEach((pt) => {
+                    if (pt[0] < 0) pt[0] += 360
+                })
             }
-            */
 
             // add poly
             polys.push(pts);
@@ -189,10 +137,154 @@ export async function svgFromGeo(geoData = {}, {
             properties,
             position,
             areas,
+            bboxes: [],
             polys
         })
 
     }
+
+    /**
+     * add bboxes
+     * detect tiny feautures
+     */
+
+    /*
+    let tinyFeatures = {
+        groups: new Set([]),
+        polys: new Set([]),
+        min: new Set([])
+    };
+    */
+
+    for (let i = 0, l = featureArr.length; i < l; i++) {
+        let path = featureArr[i];
+        let { polys } = path;
+        path.tinyPolys = [];
+
+        for (let j = 0, k = polys.length; j < k; j++) {
+            let poly = polys[j];
+            let bb = getPolyBBox_arr(poly)
+
+            // autoscale
+            let [w, h] = [bb.width * scale, bb.height * scale];
+            let minDim = Math.min(w, h)
+            //console.log({w,h, simplify});
+
+            //let isTiny = false
+
+            if (minDim < scale * 0.01) {
+                /*
+                tinyFeatures.groups.add(i)
+                tinyFeatures.polys.add(j)
+                tinyFeatures.min.add(minDim)
+                */
+                path.tinyPolys.push(j)
+                // increase accuracy
+                if (featureArr.length === 1) decimals = 3
+            }
+
+            // add for bbox calc
+            lonArr.push(bb.x, bb.right)
+            latArr.push(bb.y, bb.bottom)
+
+            // add bbox
+            path.bboxes.push(bb)
+
+        }
+    }
+
+
+
+
+    /**
+     * remove small regions
+     * like islands or enclaves
+     * calculate accurate bbox
+     */
+
+    if (minArea || simplify) {
+
+        // reset lon lat for new bbox excluding islands
+        lonArr = [];
+        latArr = [];
+
+        let featureArrFilter = [];
+
+
+        /**
+         * auto scale
+         */
+
+
+        for (let i = 0, l = featureArr.length; i < l; i++) {
+            let path = featureArr[i];
+            let { polys, areas, bboxes, isTiny } = path;
+
+            isTiny = featureArr.length === 1 ? isTiny : false;
+
+            let area0 = Math.max(...path.areas);
+            let idx = path.areas.findIndex(area => area === area0);
+
+            // get bbox of largest landmass
+            //let bb0 = getPolyBBox_arr(path.polys[idx])
+            let bb0 = bboxes[idx];
+            let mid0 = [bb0.x + bb0.width * 0.5, bb0.y + bb0.height * 0.5]
+
+            // distance threshold
+            let thresh = (bb0.width + bb0.height) * 2
+
+            //let pathN = JSON.parse(JSON.stringify(path));
+            let pathN = path;
+            let bboxesN = [];
+            let areasN = [];
+            let polysN = []
+
+            for (let j = 0, k = polys.length; j < k; j++) {
+                let area = areas[j]
+                //let ratio = area / area0 * 100
+                let poly = polys[j];
+
+                /**
+                 * get distance from main land mass
+                 * remove if too far away or too small
+                 */
+                let bb = bboxes[j]
+
+                if (minArea) {
+
+                    let mid = [bb.x + bb.width * 0.5, bb.y + bb.height * 0.5];
+                    let distMan = getDistManhattan_arr(mid0, mid);
+                    //console.log({distMan});
+
+                    // ignore small or far away
+                    //
+                    if (!isTiny && area < minArea || distMan > thresh) {
+                        continue
+                    }
+                }
+
+                // update lon/lat arrays for svg viewBox
+                areasN.push(area)
+                bboxesN.push(bb)
+                lonArr.push(bb.x, bb.right)
+                latArr.push(bb.y, bb.bottom)
+
+                // add to filtered
+                polysN.push(poly)
+
+            }
+
+            pathN.areas = areasN;
+            pathN.polys = polysN;
+            pathN.bboxes = bboxesN
+            featureArrFilter.push(pathN)
+        }
+
+        featureArr = featureArrFilter
+
+    }
+
+    //console.log({featureArr});
 
 
     /**
@@ -212,93 +304,19 @@ export async function svgFromGeo(geoData = {}, {
         let protectBB = true;
 
         featureArr = simplifyPolyGroups(featureArr, polyChunks, simplify, normalizeDirection, protectBB);
-
-
         //console.log({featureArr});
 
     }
 
 
-
-    /**
-     * remove small regions
-     * like islands or enclaves
-     * calculate accurate bbox
-     */
-
-    if (removeIslands || simplify || wrapEast) {
-
-        let featureArrFilter = [];
-
-        // reset lon lat for accurate bbox
-        lonArr = [];
-        latArr = [];
-
-        for (let i = 0, l = featureArr.length; i < l; i++) {
-            let path = featureArr[i];
-            let { polys, areas } = path;
-
-            let area0 = Math.max(...path.areas);
-            let idx = path.areas.findIndex(area => area === area0);
-
-            // get bbox of largest landmass
-            let bb0 = getPolyBBox_arr(path.polys[idx])
-            let mid0 = [bb0.x + bb0.width * 0.5, bb0.y + bb0.height * 0.5]
-            let thresh = (bb0.width + bb0.height) * 2
-
-            // add for bbox calc
-            lonArr.push(bb0.x, bb0.right)
-            latArr.push(bb0.y, bb0.bottom)
-
-            let pathN = JSON.parse(JSON.stringify(path));
-            let polysN = []
-
-            for (let j = 0, k = polys.length; j < k; j++) {
-                let area = areas[j]
-                let ratio = area / area0 * 100
-                let poly = polys[j];
-
-                /**
-                 * get distance from main land mass
-                 * remove if too far away or too small
-                 */
-                let bb = getPolyBBox_arr(poly)
-
-                if (removeIslands) {
-
-                    let mid = [bb.x + bb.width * 0.5, bb.y + bb.height * 0.5];
-                    let distMan = getDistManhattan_arr(mid0, mid);
-                    //console.log({distMan});
-
-                    // ignore small or far away
-                    if (ratio < removeIslands || distMan > thresh) {
-                        continue
-                    }
-                }
-
-                // add to accurate bbox
-                lonArr.push(bb.x, bb.right)
-                latArr.push(bb.y, bb.bottom)
-
-                // add to filtered
-                polysN.push(poly)
-
-            }
-            pathN.polys = polysN;
-            featureArrFilter.push(pathN)
-            //console.log('polysN', polysN.length);
-        }
-
-        featureArr = featureArrFilter
-
-    }
+    console.log({ featureArr });
 
 
 
     /**
      * reorder top left to bottom right
      */
-    featureArr = featureArr.sort((a, b) => a.position.top - b.position.top || a.position.left - b.position.left);
+    //featureArr = featureArr.sort((a, b) => a.position.top - b.position.top || a.position.left - b.position.left);
 
 
     /**
@@ -311,10 +329,15 @@ export async function svgFromGeo(geoData = {}, {
     let lonMax = Math.max(...lonArr);
     let latMin = Math.min(...latArr);
     let latMax = Math.max(...latArr);
-    //console.log({lonArr});
+
+
+    //console.log({lonArr, latArr});
 
     // get ultimate SVG bbox in mercator projection
+    //let ptsBBMercator = projectPointArr([[lonMin, latMin], [lonMax, latMax]], projection, scale, decimals);
+
     let ptsBBMercator = projectPointArr([[lonMin, latMin], [lonMax, latMax]], projection, scale, decimals);
+
     let xArrM = [ptsBBMercator[0][0], ptsBBMercator[1][0]];
     let yArrM = [ptsBBMercator[0][1], ptsBBMercator[1][1]];
 
@@ -326,6 +349,8 @@ export async function svgFromGeo(geoData = {}, {
     let offsetsX = [];
     let offsetsY = [];
     let svgMarkup = [];
+    let decimalsMax = 3;
+
 
     //console.log({featureArr});
     for (let i = 0, l = featureArr.length; i < l; i++) {
@@ -346,6 +371,11 @@ export async function svgFromGeo(geoData = {}, {
             // ignore short
             if (poly.length < 3) continue
 
+            //let isTiny = feature.tinyPolys.includes(p);
+            //let decimalsLocal = !isTiny ? decimals : decimalsMax
+            //decimalsMax = decimalsLocal>decimalsMax ? decimalsLocal : decimalsMax;
+            //decimalsMax = 5;
+
             // mercator projection
             poly = projectPointArr(poly, projection, scale, decimals);
 
@@ -355,6 +385,8 @@ export async function svgFromGeo(geoData = {}, {
             // remove colinear
             polys[p] = removeCollinearPoints(poly);
 
+            //console.log(JSON.parse(JSON.stringify(poly)));
+
             // ignore short
             if (poly.length < 3) continue
 
@@ -363,22 +395,23 @@ export async function svgFromGeo(geoData = {}, {
         }
 
         //console.log({polysFilter});
-
+        if (!polysFilter.length) continue;
 
         // convert to pathData
-        let pathData = multiPolyToRelativePathData(polysFilter, decimals);
+        let { pathData, pathDataArr } = multiPolyToRelativePathData(polysFilter, {
+            decimals,
+        });
         //console.log({pathData});
 
         if (!pathData.length) continue;
 
-        let offX = pathData[0].values[0] - x;
-        let offY = pathData[0].values[1] - y;
+        // separate path el for each sub path
+        //split = true
+        if (!split) pathDataArr = [pathData];
 
-        offsetsX.push(offX);
-        offsetsY.push(offY);
+        //console.warn({x, y});
 
-        pathData[0].values[0] = offX;
-        pathData[0].values[1] = offY;
+        let groupMarkup = [];
 
         /**
          * add selected properties
@@ -386,32 +419,83 @@ export async function svgFromGeo(geoData = {}, {
          */
         let attArr = [];
 
+        let classAttPre = [classPre, 'feature'].filter(Boolean).join('-');
+        let classAtts = [classAttPre];
         for (let prop in properties) {
             if (atts.has(prop)) {
                 attArr.push(`data-${prop}="${properties[prop]}"`)
+                classAtts.push(`${classAttPre}-${properties[prop]}`)
             }
         }
 
-        let d = serializePathData(pathData);
-        svgMarkup.push(`<path ${attArr.join(' ')} d="${d}" />`);
+
+        pathDataArr.forEach((pathData, i) => {
+
+            let offX = pathData[0].values[0] - x;
+            let offY = pathData[0].values[1] - y;
+
+            offsetsX.push(offX);
+            offsetsY.push(offY);
+
+            pathData[0].values[0] = +offX.toFixed(decimals);
+            pathData[0].values[1] = +offY.toFixed(decimals);
+
+            let d = serializePathData(pathData);
+            let classAtt = classAtts.length ? `class="${classAtts.join(' ')}"` : ''
+
+            let pathMarkup = split ? `<path d="${d}" />` : `<path ${classAtt} ${attArr.join(' ')} d="${d}" />`;
+
+            groupMarkup.push({ atts: attArr.join(' '), classAtt, path: pathMarkup })
+
+        })
+
+        svgMarkup.push(groupMarkup);
+
     }
 
     let bb = { x: 0, y: 0, width: right - x, height: bottom - y }
+    for (let key in bb) {
+        bb[key] = +bb[key].toFixed(decimalsMax)
+    }
 
-    //console.log(offsetsX, offsetsY);
-    svgMarkup = svgMarkup.join('');
+    let svgFeatures = ''
+    svgMarkup.forEach(g => {
+        if (g.length > 1) {
+            svgFeatures += `<g ${g[0].classAtt} ${g[0].atts} >${g.map(p => p.path).join('')}</g>`
+        } else {
+            svgFeatures += `${g[0].path}`
+        }
+    })
+
 
     /**
      * build self contained
      * svg markup
      */
 
-    let dataSvgGeo = JSON.stringify({ bb, x, y, scale, projection }).replaceAll('"', '&quot;');
+    // add meta data
+    //.replaceAll('"', '&quot;')
+    let dataSvgGeo = JSON.stringify({ bb, x, y, scale, projection, lonMin, latMin, lonMax, latMax });
+    let metaAtt = meta ? ` data-svgeo='${dataSvgGeo}'` : '';
 
-    let svg =
-        `<svg viewBox="${[bb.x, bb.y, bb.width, bb.height].join(' ')}" data-svgeo="${dataSvgGeo}">
-        ${svgMarkup}
-    </svg>`;
+
+    /**
+     * add SVG markers
+     * project and align
+     */
+    let markupMarker='';
+    if(markers.length){
+        //console.log({markers});
+        let markerSVG = getMarkerSVGMarkup(markers, {projection, scale, x, y, decimals, classPre});
+        markupMarker +=markerSVG;
+    }
+
+    let cssEl = css ? `<style>${css}</style>` : '';
+    let styleAtt = cssInline ? ` style="${cssInline}"` : '';
+
+    let svg = svgFeatures ?
+        `<svg viewBox="${[bb.x, bb.y, bb.width, bb.height].join(' ')}" ${styleAtt}${metaAtt}>${cssEl}<g class="${[classPre, 'features'].filter(Boolean).join('-')}">${svgFeatures}</g>${markupMarker}</svg>` :
+        '';
 
     // SVG markup size in KB
     let size = +(svg.length / 1024).toFixed(2);

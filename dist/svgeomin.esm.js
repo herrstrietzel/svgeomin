@@ -1,4 +1,5 @@
-let degToRad = Math.PI / 180;
+const degToRad = Math.PI / 180;
+const radToDeg = 180/Math.PI;
 
 // Shared rounding helper
 function roundPt(pt, decimals = -1) {
@@ -54,8 +55,8 @@ function mercatorProject(lon = 0, lat = 0, scale = 1, decimals = -1, revert = fa
   let m = 85.05112878;
 
   if (revert) {
-    let normX = x / scale;
-    let normY = y / scale;
+    let normX = x/scale;
+    let normY = y/scale;
 
     let lonDeg = normX * 360 - 180;
     let latRad = 2 * Math.atan(Math.exp(Math.PI - normY * 2 * Math.PI)) - Math.PI / 2;
@@ -175,6 +176,11 @@ function multiPolyToRelativePathData(polys = [], {
     let pathData = [];
     let x = 0;
     let y = 0;
+    
+    // separate sub paths
+    let pathDataArr = [];
+    // collect abssolute M start coordinates 
+    let M_arr = [];
 
     for (let i = 0; i < polys.length; i++) {
         let pts = polys[i];
@@ -184,6 +190,7 @@ function multiPolyToRelativePathData(polys = [], {
 
         // Start point of the current sub-polygon
         let M = pts[0];
+        M_arr.push(M);
 
         // First M
         if (pathData.length === 0) {
@@ -239,7 +246,30 @@ function multiPolyToRelativePathData(polys = [], {
         pathData.push({ type: 'z', values: [] });
     }
 
-    return pathData;
+    // create sub path array
+    let idx = -1;
+    pathData.forEach((com,i)=>{
+        let {type, values} = com;
+
+        // round
+        if(decimals>0){
+            values = values.length ? 
+            values.map(val=>+val.toFixed(decimals)) : 
+            values;
+            pathData[i].values = values;
+        }
+
+        if(type.toLowerCase()==='m'){
+            idx++;
+            type='M';
+            values=M_arr[idx];
+            pathDataArr.push([]);
+        }
+
+        pathDataArr[idx].push({type, values});
+    });
+
+    return {pathData, pathDataArr};
 }
 
 function serializePathData(pathData = []) {
@@ -277,12 +307,13 @@ function serializePathData(pathData = []) {
 
 /**
  * Deduplicates and removes collinear points from an integer polygon ring.
- * 
- * @param {Array<Array<number>>} ring - Array of 2D points [[x, y], ...]
- * @param {boolean} [isClosed=true] - Whether the path is closed
- * @returns {Array<Array<number>>} Optimized ring with zero redundant vertices
  */
 function removeCollinearPoints(ring, isClosed = true) {
+
+    const pointsEqual = (p1, p2) => {
+        return p1[0] === p2[0] && p1[1] === p2[1];
+    };
+
     if (!ring || ring.length < 3) return ring;
 
     // Step 1: Remove adjacent duplicate coordinates
@@ -302,7 +333,7 @@ function removeCollinearPoints(ring, isClosed = true) {
 
     // Step 2: Multi-pass elimination of collinear points
     let changed = true;
-    
+
     while (changed && pts.length >= 3) {
         changed = false;
         let cleaned = [];
@@ -326,7 +357,7 @@ function removeCollinearPoints(ring, isClosed = true) {
                 // (and not a sharp 180-degree dead-end spike)
                 let dotProduct = dx1 * dx2 + dy1 * dy2;
                 if (dotProduct >= 0) {
-                    changed = true; 
+                    changed = true;
                     continue;
                 }
             }
@@ -337,43 +368,63 @@ function removeCollinearPoints(ring, isClosed = true) {
         pts = cleaned;
     }
 
-    // Step 3: Re-close ring if necessary
-    if (isClosed && pts.length > 0) {
-        pts.push([...pts[0]]);
-    }
-
     return pts;
 }
 
-function pointsEqual(p1, p2) {
-    return p1[0] === p2[0] && p1[1] === p2[1];
-}
+/**
+ * Calculates polygon area on a sphere in km^2.
+ * @param {Array<[number, number]>} ring - Array of [longitude, latitude] pairs in degrees.
+ * @returns {number} Area in square kilometers.
+ */
 
-function getPolygonArea_arr(pts, absolute = true, maxPts=0) {
+function getSphericalArea(pts=[], absolute = true, maxPts = 0) {
+
+  const RAD = Math.PI / 180;
+  const R = 6371.0088; // Earth radius in km
+
+  let len = pts.length;
+  if (len < 3) return 0;
+
   let area = 0;
   let step = 1;
 
-  let len = pts.length;
-
-  // for sloppy but faster approximations
-  if(maxPts && len>maxPts*2){
-    step = Math.floor(pts.length/maxPts);
+  // Calculate stride if subsampling is requested
+  if (maxPts > 0 && len > maxPts * 2) {
+    step = Math.floor(len / maxPts);
   }
 
-  for (let i = step; len && i < len; i+=step) {
-    let ptN = pts[i+step] ? pts[i+step] : pts[0];
-    let pt = pts[i-step];
-    let addX = pts[i-step][0];
-    let addY = ptN[1];
-    let subX = ptN[0];
-    let subY = pt[1];
-    area += addX * addY * 0.5 - subX * subY * 0.5;
+  let i = 0;
+  while (i < len) {
+    // Determine current point and next point based on step
+    let p1 = pts[i];
+    
+    let nextIdx = i + step;
+    // Wrap around to the start point if we reach or pass the end
+    if (nextIdx >= len) {
+      nextIdx = 0;
+    }
+    
+    let p2 = pts[nextIdx];
+
+    let lon1 = p1[0] * RAD;
+    let lat1 = p1[1] * RAD;
+    let lon2 = p2[0] * RAD;
+    let lat2 = p2[1] * RAD;
+
+    // Spherical Shoelace contribution
+    area += (lon2 - lon1) * (2 + Math.sin(lat1) + Math.sin(lat2));
+
+    // Move to next sampled point
+    i += step;
+    
+    // Stop after closing the loop with point 0
+    if (nextIdx === 0) break;
   }
 
-  area = absolute ? Math.abs(area) : area;
-  console.log({absolute, step, area});
+  // Convert spherical excess to square kilometers
+  area = +((area * R * R) * 0.5).toFixed(3);
 
-  return area;
+  return absolute ? Math.abs(area) : area;
 }
 
 function getPolyBBox_arr(vertices) {
@@ -453,104 +504,178 @@ function removeZeroLength(pts = [], addClosePt = false) {
  * polygons into shared & unshared 
  * continuous arc chunks.
  */
+function doBBoxesIntersect(a, b) {
+    return !(
+        a.right < b.left ||
+        a.left > b.right ||
+        a.bottom < b.top ||
+        a.top > b.bottom
+    );
+}
 
 function getPolyChunks(groups = []) {
+    let polyMeta = [];
 
-    let getPtKey = (pt) => `${pt[0]},${pt[1]}`;
-
-    // Map every undirected edge to the list of polygons that contain it
-    let edgeMap = new Map();
-
+    // Flatten polygons and pre-identify overlapping candidates via bounding boxes
     groups.forEach((group, groupIdx) => {
+
         group.polys.forEach((poly, polyIdx) => {
-            let numPts = poly.length;
-            if (numPts < 2) return;
+            let bbox = group.bboxes ? group.bboxes[polyIdx] : null;
 
-            let polyId = `${groupIdx}_${polyIdx}`;
-
-            for (let i = 0; i < numPts; i++) {
-                let nextI = (i + 1) % numPts;
-                let p1 = getPtKey(poly[i]);
-                let p2 = getPtKey(poly[nextI]);
-
-                // Undirected edge key
-                let edgeKey = p1 < p2 ? `${p1}|${p2}` : `${p2}|${p1}`;
-
-                if (!edgeMap.has(edgeKey)) {
-                    edgeMap.set(edgeKey, new Set());
-                }
-                edgeMap.get(edgeKey).add(polyId);
-            }
+            polyMeta.push({
+                groupIdx,
+                polyIdx,
+                polyId: `${groupIdx}_${polyIdx}`,
+                poly,
+                bbox,
+                hasOverlapCandidate: false
+            });
         });
     });
 
-    // Extract continuous chunks for each polygon
+    let totalPolys = polyMeta.length;
+
+    // Determine if each polygon intersects with at least one other polygon
+    for (let i = 0; i < totalPolys; i++) {
+        let metaA = polyMeta[i];
+        if (!metaA.bbox) {
+            metaA.hasOverlapCandidate = true; // Fallback if no bbox provided
+            continue;
+        }
+
+        for (let j = i + 1; j < totalPolys; j++) {
+            let metaB = polyMeta[j];
+            if (!metaB.bbox) continue;
+
+            if (doBBoxesIntersect(metaA.bbox, metaB.bbox)) {
+                metaA.hasOverlapCandidate = true;
+                metaB.hasOverlapCandidate = true;
+            }
+        }
+    }
+
+    let edgeMap = new Map();
+
+    // 2. Register edges ONLY for polygons that have bounding box overlaps
+    polyMeta.forEach(meta => {
+        if (!meta.hasOverlapCandidate) return;
+
+        let poly = meta.poly;
+        let numPts = poly.length;
+        if (numPts < 2) return;
+
+        for (let i = 0; i < numPts; i++) {
+            let nextI = (i + 1) % numPts;
+            let pt1 = poly[i];
+            let pt2 = poly[nextI];
+
+            // Integer/String coordinate key without excessive temporary strings
+            let p1 = `${pt1[0]},${pt1[1]}`;
+            let p2 = `${pt2[0]},${pt2[1]}`;
+            let edgeKey = p1 < p2 ? `${p1}|${p2}` : `${p2}|${p1}`;
+
+            let entry = edgeMap.get(edgeKey);
+            if (!entry) {
+                entry = [];
+                edgeMap.set(edgeKey, entry);
+            }
+            if (!entry.includes(meta.polyId)) {
+                entry.push(meta.polyId);
+            }
+        }
+    });
+
+    // Cache sorted owner signatures to avoid recalculating identical edge ownership strings
+
+    let getSortedSig = (ownersArray) => {
+        if (ownersArray.length === 1) return ownersArray[0];
+        ownersArray.sort();
+        let key = ownersArray.join('|');
+        return key;
+    };
+
     let chunkData = {};
 
-    groups.forEach((group, groupIdx) => {
-        group.polys.forEach((poly, polyIdx) => {
-            let key = `${groupIdx}_${polyIdx}`;
-            let numPts = poly.length;
-            if (numPts < 2) return;
+    // 3. Extract continuous chunks
+    polyMeta.forEach(meta => {
+        let { polyId, poly, hasOverlapCandidate } = meta;
+        let numPts = poly.length;
+        if (numPts < 2) return;
 
-            let segmentSignatures = new Array(numPts);
-            for (let i = 0; i < numPts; i++) {
-                let nextI = (i + 1) % numPts;
-                let p1 = getPtKey(poly[i]);
-                let p2 = getPtKey(poly[nextI]);
-                let edgeKey = p1 < p2 ? `${p1}|${p2}` : `${p2}|${p1}`;
-
-                let owners = Array.from(edgeMap.get(edgeKey)).sort();
-                segmentSignatures[i] = owners.join('|');
-            }
-
-            // Find junction points where neighbor signatures change
-            let splitIndices = new Set();
-            for (let i = 0; i < numPts; i++) {
-                let prevI = (i - 1 + numPts) % numPts;
-                if (segmentSignatures[i] !== segmentSignatures[prevI]) {
-                    splitIndices.add(i);
-                }
-            }
-
-            let splits = Array.from(splitIndices).sort((a, b) => a - b);
-            if (splits.length === 0) {
-                splits = [0];
-            }
-
-            // Extract chunks between junction split indices
-            let chunks = [];
-            let chunkSignatures = [];
-
-            for (let k = 0; k < splits.length; k++) {
-                let startIdx = splits[k];
-                let endIdx = splits[(k + 1) % splits.length];
-
-                let chunk = [];
-                let curr = startIdx;
-
-                // Handles ring traversal, including full loops when splits.length === 1
-                do {
-                    chunk.push(poly[curr]);
-                    curr = (curr + 1) % numPts;
-                } while (curr !== endIdx);
-
-                chunk.push(poly[endIdx]);
-
-                chunks.push(chunk);
-                chunkSignatures.push(segmentSignatures[startIdx]);
-            }
-
-            let shared_chunk_indices = chunkSignatures
-                .map((sig, idx) => (sig.includes('|') ? idx : -1))
-                .filter(idx => idx !== -1);
-
-            chunkData[key] = {
-                chunks,
-                chunkSignatures,
-                shared_chunk_indices
+        // Fast path: Polygon bbox does not touch any other polygon
+        if (!hasOverlapCandidate) {
+            chunkData[polyId] = {
+                chunks: [[...poly, poly[0]]],
+                chunkSignatures: [polyId],
+                shared_chunk_indices: []
             };
-        });
+            return;
+        }
+
+        let segmentSignatures = new Array(numPts);
+
+        for (let i = 0; i < numPts; i++) {
+            let nextI = (i + 1) % numPts;
+            let pt1 = poly[i];
+            let pt2 = poly[nextI];
+
+            let p1 = `${pt1[0]},${pt1[1]}`;
+            let p2 = `${pt2[0]},${pt2[1]}`;
+            let edgeKey = p1 < p2 ? `${p1}|${p2}` : `${p2}|${p1}`;
+
+            let owners = edgeMap.get(edgeKey);
+            if (!owners) {
+                segmentSignatures[i] = polyId;
+            } else {
+                segmentSignatures[i] = getSortedSig(owners);
+            }
+        }
+
+        // Identify split indices where signatures change
+        let splits = [];
+        for (let i = 0; i < numPts; i++) {
+            let prevI = (i - 1 + numPts) % numPts;
+            if (segmentSignatures[i] !== segmentSignatures[prevI]) {
+                splits.push(i);
+            }
+        }
+
+        if (splits.length === 0) {
+            splits = [0];
+        }
+
+        let chunks = [];
+        let chunkSignatures = [];
+        let shared_chunk_indices = [];
+
+        for (let k = 0; k < splits.length; k++) {
+            let startIdx = splits[k];
+            let endIdx = splits[(k + 1) % splits.length];
+
+            let chunk = [];
+            let curr = startIdx;
+
+            do {
+                chunk.push(poly[curr]);
+                curr = (curr + 1) % numPts;
+            } while (curr !== endIdx);
+
+            chunk.push(poly[endIdx]);
+
+            let sig = segmentSignatures[startIdx];
+            chunks.push(chunk);
+            chunkSignatures.push(sig);
+
+            if (sig.includes('|')) {
+                shared_chunk_indices.push(k);
+            }
+        }
+
+        chunkData[polyId] = {
+            chunks,
+            chunkSignatures,
+            shared_chunk_indices
+        };
     });
 
     return chunkData;
@@ -561,10 +686,11 @@ function getPolyChunks(groups = []) {
  * polygon simplification
  */
 
-function simplifyRDP(pts = [], sqTolerance = 0.01, normalizeDirection = false, protectBB=false) {
+function simplifyRDP(pts = [], sqTolerance = 0.01, normalizeDirection = false, bb={}) {
     if (pts.length <= 2) return pts;
 
-    let bb = protectBB ? getPolyBBox_arr(pts) : {};
+    let protectBB = Object.keys(bb).length;
+
     let { x=0, y=0, right=0, bottom=0 } = bb;
 
     /**
@@ -638,7 +764,144 @@ function getSqSegDist(p, p1, p2) {
     return dx * dx + dy * dy;
 }
 
-function simplifyPolyGroups(groups = [], chunkData = {}, sqTolerance = 0.1, normalizeDirection=false, protectBB = true) {
+/**
+ * unite self intersecting polygons
+ * based on J. Holmes's answer
+ * https://stackoverflow.com/a/10673515/15015675
+ */
+
+function unitePolygonPts(poly) {
+    let len = poly.length;
+    if (len < 3) return poly;
+
+    const epsilon = 1e-9;
+
+    // Helper: line segment intersection for [lon, lat] pairs
+    const getLineIntersection = (p0, p1, p2, p3) => {
+        let [x1, y1] = p0;
+        let [x2, y2] = p1;
+        let [x3, y3] = p2;
+        let [x4, y4] = p3;
+
+        // get x/y deltas
+        let [dx1, dx2] = [x1 - x2, x3 - x4];
+        let [dy1, dy2] = [y1 - y2, y3 - y4];
+
+        let denominator = dx1 * dy2 - dy1 * dx2;
+        if (Math.abs(denominator) < 1e-12) return null; // Parallel or collinear
+
+        let cross1 = x1 * y2 - y1 * x2;
+        let cross2 = x3 * y4 - y3 * x4;
+
+        let x = (cross1 * dx2 - dx1 * cross2) / denominator;
+        let y = (cross1 * dy2 - dy1 * cross2) / denominator;
+
+        // Boundary check with float tolerance
+        if (
+            x < Math.min(x1, x2) || x > Math.max(x1, x2) ||
+            x < Math.min(x3, x4) || x > Math.max(x3, x4) ||
+            y < Math.min(y1, y2) || y > Math.max(y1, y2) ||
+            y < Math.min(y3, y4) || y > Math.max(y3, y4)
+        ) {
+            return null;
+        }
+
+        return [x, y];
+    };
+
+    // Find intersections along a given line segment
+    const getSelfIntersections = (pts, pt0, pt1) => {
+        let intersections = [];
+        let segLenSq = squaredDist(pt0, pt1);
+        let thresh = segLenSq / 1000;
+        let l = pts.length;
+
+        for (let i = 0; i < l; i++) {
+            let pt2 = pts[i];
+            let pt3 = pts[(i + 1) % l];
+
+            // Skip adjacent or identical segments
+            if (
+                (pt0[0] === pt2[0] && pt0[1] === pt2[1]) ||
+                (pt1[0] === pt3[0] && pt1[1] === pt3[1]) ||
+                (pt0[0] === pt3[0] && pt0[1] === pt3[1])
+            ) {
+                continue;
+            }
+
+            let intersectionPoint = getLineIntersection(pt0, pt1, pt2, pt3);
+
+            if (intersectionPoint) {
+                let lengthSq = squaredDist(pt0, intersectionPoint);
+
+                if (lengthSq > thresh && lengthSq < segLenSq) {
+                    intersections.push({
+                        intersectionPoint,
+                        endPoint: pt3,
+                        lengthSq,
+                    });
+                }
+            }
+        }
+
+        intersections.sort((a, b) => a.lengthSq - b.lengthSq);
+        return intersections;
+    };
+
+    let squaredDist = (p1, p2) => (p1[0] - p2[0]) * (p1[0] - p2[0]) + (p1[1] - p2[1]) * (p1[1] - p2[1]);
+
+    // Track next indices using a Map to avoid mutating input array
+    let nextMap = new Map();
+    for (let i = 0; i < len; i++) {
+        nextMap.set(poly[i], poly[(i + 1) % len]);
+    }
+
+    let newPoly = [];
+    let currentPoint = poly[0];
+    let nextPoint = nextMap.get(currentPoint);
+    newPoly.push(currentPoint);
+
+    // Safety cap against infinite loops
+    let maxSteps = len * 3;
+    for (let i = 0; i < maxSteps; i++) {
+        let intersections = getSelfIntersections(poly, currentPoint, nextPoint);
+
+        if (intersections.length === 0) {
+            newPoly.push(nextPoint);
+            currentPoint = nextPoint;
+            nextPoint = nextMap.get(nextPoint) || poly[(poly.indexOf(nextPoint) + 1) % len];
+        } else {
+            let closest = intersections[0];
+            currentPoint = closest.intersectionPoint;
+            nextPoint = closest.endPoint;
+            newPoly.push(currentPoint);
+        }
+
+        // Check if loop closed back to start
+        if (
+            newPoly.length > 2 &&
+            Math.abs(currentPoint[0] - newPoly[0][0]) < epsilon &&
+            Math.abs(currentPoint[1] - newPoly[0][1]) < epsilon
+        ) {
+            break;
+        }
+    }
+
+    // Remove trailing point if it duplicates the start point
+    let first = newPoly[0];
+    let last = newPoly[newPoly.length - 1];
+    if (
+        newPoly.length > 1 &&
+        Math.abs(first[0] - last[0]) < epsilon &&
+        Math.abs(first[1] - last[1]) < epsilon
+    ) {
+        newPoly.pop();
+    }
+
+    return newPoly;
+}
+
+function simplifyPolyGroups(groups = [], chunkData = {}, sqTolerance = 0.1, normalizeDirection = false, protectBB = true) {
 
     /**
      * Includes signature in key to distinguish between 
@@ -683,7 +946,18 @@ function simplifyPolyGroups(groups = [], chunkData = {}, sqTolerance = 0.1, norm
             } else {
 
                 // Compute simplification once and store in cache
-                simplifiedChunk = simplifyRDP(chunk, sqTolerance, normalizeDirection, protectBB);
+                let bb = protectBB ?
+                    (groups[groupIdx]?.bboxes[polyIdx] || {})
+                    : {};
+
+                let item = groups[groupIdx];
+
+                // skip RDP for tiny polygons
+                if(item.tinyPolys.includes(polyIdx)){
+                    simplifiedChunk = chunk;
+                }else {
+                    simplifiedChunk = simplifyRDP(chunk, sqTolerance, normalizeDirection, bb);
+                }
 
                 arcCache.set(cacheKey, simplifiedChunk);
             }
@@ -698,6 +972,17 @@ function simplifyPolyGroups(groups = [], chunkData = {}, sqTolerance = 0.1, norm
 
         // sort to bottom most
         fullPoly = polyStartToBottomMost(fullPoly);
+
+        /**
+         * unite self intersections
+         * only for higher simplification thresholds
+         */
+        let unitePoly = sqTolerance > 0.001;
+        unitePoly = false;
+
+        if (unitePoly) {
+            fullPoly = unitePolygonPts(fullPoly);
+        }
 
         updatedGroups[groupIdx].polys[polyIdx] = fullPoly;
     }
@@ -714,12 +999,12 @@ function polyStartToBottomMost(poly = []) {
     if (len < 3) return poly;
 
     let bottomIdx = 0;
-    let maxY = 0; 
+    let maxY = 0;
 
     for (let i = 0; i < len; i++) {
         let [x, y] = poly[i];
 
-        if (y > maxY ) {
+        if (y > maxY) {
             maxY = y;
             bottomIdx = i;
         }
@@ -745,21 +1030,21 @@ async function filterGeoData(geoData = {}, {
     if (typeof geoData === 'string') {
 
         // is URL
-        if (geoData.includes('.geoData') || geoData.includes('.geogeoData')) {
+        if (geoData.startsWith('https://') || geoData.includes('.json') || geoData.includes('.geojson')) {
             let res = await fetch(geoData);
             if (res.ok) {
-                geoData = await res.geoData();
+                geoData = await res.json();
             }
         }
         // is stringified
         else {
             try {
                 geoData = JSON.parse(geoData);
-
             } catch {
                 geoData = null;
                 console.warn('No valid geoData input');
             }
+
             // exit: has no relevant data
             if (geoData.features === undefined || geoData.features[0].geometry === undefined) {
                 console.warn('No valid geogeoData input');
@@ -771,8 +1056,12 @@ async function filterGeoData(geoData = {}, {
     // exit
     if (geoData && typeof geoData !== 'object') return;
 
-    // no filters
-    if (!features.length &&!exclude.length) {
+    // check if properties are to filter
+    let propLen = Object.keys(geoData.features[0].properties);
+    let propsToFilter = properties.length && propLen!==properties.length;
+
+    // no filters - ready to go
+    if (!features.length &&!exclude.length && !propsToFilter ) {
 
         return geoData
     }
@@ -829,6 +1118,9 @@ async function filterGeoData(geoData = {}, {
                 if (allProperties.has(propLc)) {
                     propsLc[propLc] = valLc;
                 }
+                else if (filterVals.has(valLc)) {
+                    propsLc[propLc] = valLc;
+                }
             } else {
                 if (filterVals.has(valLc)) {
                     propsLc[propLc] = valLc;
@@ -865,53 +1157,123 @@ async function filterGeoData(geoData = {}, {
 
 }
 
+const getSvgMarker = ({
+    // custom marker
+    svg = null,
+    meta = null,
+    classPre='',
+    x = 0,
+    y = 0,
+    width = 24,
+    height = 0,
+    decimals = 3,
+    styles = {},
+    bb = [0, 0, 24, 24] // viewBox [x, y, w, h] of the internal path
+} = {}) => {
+
+    height = !height ? width : height;
+    width = !width && height ? height : width;
+
+    // Calculate transforms
+    let scaleX = +(width / bb[2]).toFixed(decimals);
+    let translateX = +(x - width * 0.5).toFixed(decimals);
+    let translateY = +(y - height).toFixed(decimals);
+
+    // add CSS
+    let css = [];
+
+    // convert camelCase to kebab-case
+    const kebabize = str => {
+        return str.split('').map((letter, idx) => {
+            return letter.toUpperCase() === letter
+                ? `${idx !== 0 ? '-' : ''}${letter.toLowerCase()}`
+                : letter;
+        }).join('');
+    };
+
+    // copy CSS directly
+    if (typeof styles === 'string') {
+        css.push(styles);
+    }
+    else if (typeof styles === 'object') {
+        for (let prop in styles) {
+            css.push(`${kebabize(prop)}:${styles[prop]}`);
+        }
+    }
+
+    let cssAtt = css.length ? ` style="${css.join('; ')}"` : '';
+
+    // choose custom marker svg or default
+    let markerElMarkup = svg ? svg : `<path fill="#000" style="stroke:none;mask-image:linear-gradient(rgba(0,0,0,0), 80%, rgba(0,0,0,0.5));filter:blur(1px)" d="M 21.5 14.5 c 3.15 0 3.85 1.5 1.75 3.5 c -3.5 3.5 -11.2 6 -11.2 6 c 0 0 -3.15 -2 0.7 -6 c 2.1 -2 5.95 -3.5 8.75 -3.5 z" /><path d="M12 23.5c0 0-7.5-4.5-7.5-12a1 1 0 1 1 15 0c0 7-7.5 12-7.5 12z" fill="currentColor" /><path d="M12 9a1 1 0 0 0 0 6 1 1 0 0 0 0-6z" fill="white" />`;
+
+    // omit scale for factor 1
+    let scaleProp= scaleX!=1 ? ` scale(${scaleX})` : '';
+
+    // add marker meta
+    let metaAtt = meta ? ` data-meta='${JSON.stringify(meta)}'`: '';
+
+    // wrap in transform g element
+    return `<g class="${[classPre, 'marker'].filter(Boolean).join('-')}" transform="translate(${translateX} ${translateY})${scaleProp}"${cssAtt}${metaAtt}>${markerElMarkup}</g>`;
+};
+
+function getMarkerSVGMarkup(markers = [], { projection = 'mercator', scale = 10000, x = 0, y = 0, revert = false, decimals = 0, classPre = 'svgeomin' } = {}) {
+    let markersMarkup = '';
+
+    for (let i = 0; i < markers.length; i++) {
+        let marker = markers[i];
+        let { lat = 0, lon = 0, bb = [0, 0, 24, 24], width = 24, height = null, styles = {}, icon = '', meta=null } = marker;
+
+        let [xM, yM] = projectPoint(lon, lat, projection, scale, decimals, revert, x, y);
+
+        xM -= x + bb[0];
+        yM -= y + bb[1];
+
+        // get custom icon
+        let markerCustom = icon ? icon.trim() : null;
+        let markerEl = null;
+        let markerCustomMarkup = null;
+
+        let vB = [];
+
+        if (markerCustom) {
+
+            let isPathData = markerCustom.startsWith('M') || markerCustom.startsWith('m');
+
+            // is pathdata string
+            if (isPathData) {
+                markerCustomMarkup = `<path d="${icon}"/>`;
+            }
+            // is SVG or SVG geometry element try to parse
+            else {
+                try {
+                    markerEl = new DOMParser().parseFromString(icon, 'image/svg+xml').documentElement;
+                    if (markerEl.nodeName.toLowerCase() === 'svg') {
+                        vB = markerEl.getAttribute('viewBox') ? markerEl.getAttribute('viewBox').replaceAll(',', '').split(' ').filter(Boolean).map(Number) : vB;
+
+                        // prefer viewBox
+                        if (vB.length) bb = vB;
+                        markerCustomMarkup = icon.split('>').slice(1).join('>').split('</svg')[0];
+                    } else {
+                        markerCustomMarkup = icon;
+                    }
+                } catch {
+                    console.warn('no valid svg markup');
+                }
+            }
+        }
+
+        // Pass calculated layout to marker generator
+        let markerDef = getSvgMarker({ classPre, svg: markerCustomMarkup, x: xM, y: yM, width, height, bb, styles, meta });
+        markersMarkup += markerDef;
+    }
+
+    return `<g class="${[classPre, 'markers'].filter(Boolean).join('-')}">${markersMarkup}</g>`;
+}
+
 // object for chainable methods
 function SVGEO(props = {}) {
     Object.assign(this, props);
 }
-
-SVGEO.prototype.getGeoJson = function ({ decimals = -1, name = 'svgeomin', properties=[] } = {}) {
-    let geogeoData = {
-        type: "FeatureCollection",
-        name,
-        features: [],
-    };
-
-    let propertiesFiltered = properties;
-
-    for (let feature of this.featureArr) {
-        let { properties, polys } = feature;
-
-        let type = polys.length > 1 ? "MultiPolygon" : "Polygon";
-
-        if (decimals > -1) {
-            polys = polys.map(poly => poly.map(pt => pt.map(val => +val.toFixed(decimals))));
-        }
-
-        let polysN = type === 'MultiPolygon' ? polys.map(poly => [poly]) : polys;
-
-        let propertiesN = {};
-        for(let prop in properties){
-            if(propertiesFiltered.length && propertiesFiltered.includes(prop)){
-                propertiesN[prop] = properties[prop];
-            }
-        }
-
-        let featureN = {
-            type: 'Feature',
-            properties:propertiesN,
-            geometry: {
-                type,
-                coordinates:
-                    polysN
-            }
-        };
-        geogeoData.features.push(featureN);
-    }
-
-    return geogeoData
-
-};
 
 async function svgFromGeo(geoData = {}, {
     // features to filter
@@ -922,24 +1284,54 @@ async function svgFromGeo(geoData = {}, {
     exclude = [],
     // scale to reasonable coordinate space
     scale = 10000,
-    // rounding: integers are best!
+
+    // autoscale tiny features
+
+    // coordinate rounding: integers are best!
     decimals = 0,
-    // square distance threshold for RDP simplification
+    // threshold for RDP simplification in km
     simplify = 0,
-    // remove small islands or enclaves
-    removeIslands = 0,
-    wrapEast = 0,
-    projection = 'mercator'
+
+    // remove small feautes e.g islands or exclaves by km² threshold
+    minArea = 0,
+
+    // create path el for each sub poly e.g islands
+    split = 0,
+
+    // add meta for original geodata reference
+    meta = 1,
+
+    // CSS prefix
+    classPre = 'svgmin',
+
+    projection = 'mercator',
+
+    // add map markers
+    markers=[],
+
+    // append CSS
+    css='',
+
+    // main svg inline css
+    cssInline=''
+
 } = {}) {
 
+    // translate API simplify tolerance to square distance
+    if (simplify) {
+        simplify = simplify * (1 / 11100);
+
+        console.log({ simplify });
+    }
+
     // parse and filter geodata
-    geoData = await filterGeoData(geoData, {features, properties, exclude});
+    geoData = await filterGeoData(geoData, { features, properties, exclude });
 
     // normalize projection type to lowercase
     projection = projection.toLowerCase();
 
     // for approximated area calc
-    let maxPts = 0;
+    let maxPts = 96;
 
     let geoFeatures = geoData.features;
 
@@ -959,42 +1351,19 @@ async function svgFromGeo(geoData = {}, {
     for (let item of geoFeatures) {
 
         let polys = [];
+        let areas = [];
         let position = {};
         let { bbox = [], geometry, properties } = item;
         let { coordinates } = geometry;
         let type = geometry.type;
-
-        if (!bbox.length) {
-            let coordsFlat = coordinates.flat(3);
-            let lonArr = coordsFlat.filter((val, i) => i % 2 === 0);
-            let latArr = coordsFlat.filter((val, i) => i % 2 !== 0);
-            bbox = [Math.min(...lonArr), Math.min(...latArr), Math.max(...lonArr), Math.max(...latArr)];
-
-        }
-
-        let [lonMin, latMin, lonMax, latMax] = bbox;
-        lonArr.push(lonMin, lonMax);
-        latArr.push(latMin, latMax);
-
-        /**
-         * projected Mercator 
-         * bbox for svg viewBox
-         */
-        let bbM = projectPointArr([[bbox[0], bbox[1]], [bbox[2], bbox[3]]], projection, scale, decimals);
-
-        // poly get position for reordering
-        let left = Math.min(bbM[0][0], bbM[1][0]);
-        let top = Math.min(bbM[0][1], bbM[1][1]);
-        position = { top, left };
-        let areas = [];
 
         // main land area
         for (let sub of coordinates) {
             // normalize complex poly nesting
             let pts = type === 'MultiPolygon' ? sub[0] : sub;
 
-            // get area
-            let area = removeIslands ? getPolygonArea_arr(pts, true, maxPts) : 0;
+            // get sloppy area approximation
+            let area = minArea ? getSphericalArea(pts, true, maxPts) : 0;
             areas.push(area);
 
             /**
@@ -1002,6 +1371,14 @@ async function svgFromGeo(geoData = {}, {
              * < lon 178
              * e.g russia
              */
+            let autoWrap = geoFeatures.length == 1 && bbox[0] < 0 && bbox[2] > 0;
+
+            if (autoWrap) {
+
+                pts.forEach((pt) => {
+                    if (pt[0] < 0) pt[0] += 360;
+                });
+            }
 
             // add poly
             polys.push(pts);
@@ -1012,8 +1389,128 @@ async function svgFromGeo(geoData = {}, {
             properties,
             position,
             areas,
+            bboxes: [],
             polys
         });
+
+    }
+
+    /**
+     * add bboxes
+     * detect tiny feautures
+     */
+
+    for (let i = 0, l = featureArr.length; i < l; i++) {
+        let path = featureArr[i];
+        let { polys } = path;
+        path.tinyPolys = [];
+
+        for (let j = 0, k = polys.length; j < k; j++) {
+            let poly = polys[j];
+            let bb = getPolyBBox_arr(poly);
+
+            // autoscale
+            let [w, h] = [bb.width * scale, bb.height * scale];
+            let minDim = Math.min(w, h);
+
+            if (minDim < scale * 0.01) {
+
+                path.tinyPolys.push(j);
+                // increase accuracy
+                if (featureArr.length === 1) decimals = 3;
+            }
+
+            // add for bbox calc
+            lonArr.push(bb.x, bb.right);
+            latArr.push(bb.y, bb.bottom);
+
+            // add bbox
+            path.bboxes.push(bb);
+
+        }
+    }
+
+    /**
+     * remove small regions
+     * like islands or enclaves
+     * calculate accurate bbox
+     */
+
+    if (minArea || simplify) {
+
+        // reset lon lat for new bbox excluding islands
+        lonArr = [];
+        latArr = [];
+
+        let featureArrFilter = [];
+
+        /**
+         * auto scale
+         */
+
+        for (let i = 0, l = featureArr.length; i < l; i++) {
+            let path = featureArr[i];
+            let { polys, areas, bboxes, isTiny } = path;
+
+            isTiny = featureArr.length === 1 ? isTiny : false;
+
+            let area0 = Math.max(...path.areas);
+            let idx = path.areas.findIndex(area => area === area0);
+
+            // get bbox of largest landmass
+
+            let bb0 = bboxes[idx];
+            let mid0 = [bb0.x + bb0.width * 0.5, bb0.y + bb0.height * 0.5];
+
+            // distance threshold
+            let thresh = (bb0.width + bb0.height) * 2;
+
+            let pathN = path;
+            let bboxesN = [];
+            let areasN = [];
+            let polysN = [];
+
+            for (let j = 0, k = polys.length; j < k; j++) {
+                let area = areas[j];
+
+                let poly = polys[j];
+
+                /**
+                 * get distance from main land mass
+                 * remove if too far away or too small
+                 */
+                let bb = bboxes[j];
+
+                if (minArea) {
+
+                    let mid = [bb.x + bb.width * 0.5, bb.y + bb.height * 0.5];
+                    let distMan = getDistManhattan_arr(mid0, mid);
+
+                    // ignore small or far away
+                    //
+                    if (!isTiny && area < minArea || distMan > thresh) {
+                        continue
+                    }
+                }
+
+                // update lon/lat arrays for svg viewBox
+                areasN.push(area);
+                bboxesN.push(bb);
+                lonArr.push(bb.x, bb.right);
+                latArr.push(bb.y, bb.bottom);
+
+                // add to filtered
+                polysN.push(poly);
+
+            }
+
+            pathN.areas = areasN;
+            pathN.polys = polysN;
+            pathN.bboxes = bboxesN;
+            featureArrFilter.push(pathN);
+        }
+
+        featureArr = featureArrFilter;
 
     }
 
@@ -1036,82 +1533,11 @@ async function svgFromGeo(geoData = {}, {
 
     }
 
-    /**
-     * remove small regions
-     * like islands or enclaves
-     * calculate accurate bbox
-     */
-
-    if (removeIslands || simplify || wrapEast) {
-
-        let featureArrFilter = [];
-
-        // reset lon lat for accurate bbox
-        lonArr = [];
-        latArr = [];
-
-        for (let i = 0, l = featureArr.length; i < l; i++) {
-            let path = featureArr[i];
-            let { polys, areas } = path;
-
-            let area0 = Math.max(...path.areas);
-            let idx = path.areas.findIndex(area => area === area0);
-
-            // get bbox of largest landmass
-            let bb0 = getPolyBBox_arr(path.polys[idx]);
-            let mid0 = [bb0.x + bb0.width * 0.5, bb0.y + bb0.height * 0.5];
-            let thresh = (bb0.width + bb0.height) * 2;
-
-            // add for bbox calc
-            lonArr.push(bb0.x, bb0.right);
-            latArr.push(bb0.y, bb0.bottom);
-
-            let pathN = JSON.parse(JSON.stringify(path));
-            let polysN = [];
-
-            for (let j = 0, k = polys.length; j < k; j++) {
-                let area = areas[j];
-                let ratio = area / area0 * 100;
-                let poly = polys[j];
-
-                /**
-                 * get distance from main land mass
-                 * remove if too far away or too small
-                 */
-                let bb = getPolyBBox_arr(poly);
-
-                if (removeIslands) {
-
-                    let mid = [bb.x + bb.width * 0.5, bb.y + bb.height * 0.5];
-                    let distMan = getDistManhattan_arr(mid0, mid);
-
-                    // ignore small or far away
-                    if (ratio < removeIslands || distMan > thresh) {
-                        continue
-                    }
-                }
-
-                // add to accurate bbox
-                lonArr.push(bb.x, bb.right);
-                latArr.push(bb.y, bb.bottom);
-
-                // add to filtered
-                polysN.push(poly);
-
-            }
-            pathN.polys = polysN;
-            featureArrFilter.push(pathN);
-
-        }
-
-        featureArr = featureArrFilter;
-
-    }
+    console.log({ featureArr });
 
     /**
      * reorder top left to bottom right
      */
-    featureArr = featureArr.sort((a, b) => a.position.top - b.position.top || a.position.left - b.position.left);
 
     /**
      * get final bbox/viewBox
@@ -1125,7 +1551,9 @@ async function svgFromGeo(geoData = {}, {
     let latMax = Math.max(...latArr);
 
     // get ultimate SVG bbox in mercator projection
+
     let ptsBBMercator = projectPointArr([[lonMin, latMin], [lonMax, latMax]], projection, scale, decimals);
+
     let xArrM = [ptsBBMercator[0][0], ptsBBMercator[1][0]];
     let yArrM = [ptsBBMercator[0][1], ptsBBMercator[1][1]];
 
@@ -1134,6 +1562,7 @@ async function svgFromGeo(geoData = {}, {
     let y = Math.min(...yArrM);
     let bottom = Math.max(...yArrM);
     let svgMarkup = [];
+    let decimalsMax = 3;
 
     for (let i = 0, l = featureArr.length; i < l; i++) {
 
@@ -1169,16 +1598,20 @@ async function svgFromGeo(geoData = {}, {
 
         }
 
+        if (!polysFilter.length) continue;
+
         // convert to pathData
-        let pathData = multiPolyToRelativePathData(polysFilter, decimals);
+        let { pathData, pathDataArr } = multiPolyToRelativePathData(polysFilter, {
+            decimals,
+        });
 
         if (!pathData.length) continue;
 
-        let offX = pathData[0].values[0] - x;
-        let offY = pathData[0].values[1] - y;
+        // separate path el for each sub path
 
-        pathData[0].values[0] = offX;
-        pathData[0].values[1] = offY;
+        if (!split) pathDataArr = [pathData];
+
+        let groupMarkup = [];
 
         /**
          * add selected properties
@@ -1186,31 +1619,77 @@ async function svgFromGeo(geoData = {}, {
          */
         let attArr = [];
 
+        let classAttPre = [classPre, 'feature'].filter(Boolean).join('-');
+        let classAtts = [classAttPre];
         for (let prop in properties) {
             if (atts.has(prop)) {
                 attArr.push(`data-${prop}="${properties[prop]}"`);
+                classAtts.push(`${classAttPre}-${properties[prop]}`);
             }
         }
 
-        let d = serializePathData(pathData);
-        svgMarkup.push(`<path ${attArr.join(' ')} d="${d}" />`);
+        pathDataArr.forEach((pathData, i) => {
+
+            let offX = pathData[0].values[0] - x;
+            let offY = pathData[0].values[1] - y;
+
+            pathData[0].values[0] = +offX.toFixed(decimals);
+            pathData[0].values[1] = +offY.toFixed(decimals);
+
+            let d = serializePathData(pathData);
+            let classAtt = classAtts.length ? `class="${classAtts.join(' ')}"` : '';
+
+            let pathMarkup = split ? `<path d="${d}" />` : `<path ${classAtt} ${attArr.join(' ')} d="${d}" />`;
+
+            groupMarkup.push({ atts: attArr.join(' '), classAtt, path: pathMarkup });
+
+        });
+
+        svgMarkup.push(groupMarkup);
+
     }
 
     let bb = { x: 0, y: 0, width: right - x, height: bottom - y };
+    for (let key in bb) {
+        bb[key] = +bb[key].toFixed(decimalsMax);
+    }
 
-    svgMarkup = svgMarkup.join('');
+    let svgFeatures = '';
+    svgMarkup.forEach(g => {
+        if (g.length > 1) {
+            svgFeatures += `<g ${g[0].classAtt} ${g[0].atts} >${g.map(p => p.path).join('')}</g>`;
+        } else {
+            svgFeatures += `${g[0].path}`;
+        }
+    });
 
     /**
      * build self contained
      * svg markup
      */
 
-    let dataSvgGeo = JSON.stringify({ bb, x, y, scale, projection }).replaceAll('"', '&quot;');
+    // add meta data
 
-    let svg =
-        `<svg viewBox="${[bb.x, bb.y, bb.width, bb.height].join(' ')}" data-svgeo="${dataSvgGeo}">
-        ${svgMarkup}
-    </svg>`;
+    let dataSvgGeo = JSON.stringify({ bb, x, y, scale, projection, lonMin, latMin, lonMax, latMax });
+    let metaAtt = meta ? ` data-svgeo='${dataSvgGeo}'` : '';
+
+    /**
+     * add SVG markers
+     * project and align
+     */
+    let markupMarker='';
+    if(markers.length){
+
+        let markerSVG = getMarkerSVGMarkup(markers, {projection, scale, x, y, decimals, classPre});
+        markupMarker +=markerSVG;
+    }
+
+    let cssEl = css ? `<style>${css}</style>` : '';
+    let styleAtt = cssInline ? ` style="${cssInline}"` : '';
+
+    let svg = svgFeatures ?
+        `<svg viewBox="${[bb.x, bb.y, bb.width, bb.height].join(' ')}" ${styleAtt}${metaAtt}>${cssEl}<g class="${[classPre, 'features'].filter(Boolean).join('-')}">${svgFeatures}</g>${markupMarker}</svg>` :
+        '';
 
     // SVG markup size in KB
     let size = +(svg.length / 1024).toFixed(2);
@@ -1220,6 +1699,126 @@ async function svgFromGeo(geoData = {}, {
     })
 
 }
+
+SVGEO.prototype.getUrl = function ( { data='svg', decimals=-1, addXlink=false, addDimensions=true, dataUrl = false } = {}) {
+    let url = '';
+    let {svg='', svgEl=null, bb={}} = this;
+
+    // return geojson
+    data = data.toLowerCase();
+    if(data==='geojson' || data==='geo' || data==='json'){
+        let geodata = this.getGeoJson({decimals});
+        let json = JSON.stringify(geodata);
+        let blob = new Blob([json], {type:'application/json'});
+        url = URL.createObjectURL(blob);
+        return url;
+    }
+
+    // return svg
+    if(!svg && !svgEl) return '';
+
+    // parse from markup
+    if(!svgEl){
+        svgEl = new DOMParser().parseFromString(svg, 'text/html').querySelector('svg');
+    }
+
+    if(addXlink){
+        svgEl.setAttribute('xmlns:xlink','http://www.w3.org/1999/xlink');
+    }
+
+    if(addDimensions){
+        svgEl.setAttribute('width', bb.width);
+        svgEl.setAttribute('height', bb.height);
+    }
+
+    let xml = new XMLSerializer().serializeToString(svgEl);
+
+    if(dataUrl){
+        xml = xml.replaceAll('"',"'")
+        // Handle nested single quotes inside attribute values
+        .replace(/="([^"]*)"/g, (match, p1) => {
+            const content = p1.replace(/'/g, "&quot;");
+            return `='${content}'`;
+        })
+        // id references and colors
+        .replace(/#/g, "%23");
+        url = `data:image/svg+xml,${xml}`;
+
+    }else {
+        let blob = new Blob([xml], {type:'image/svg+xml'});
+        url = URL.createObjectURL(blob);
+    }
+    return url
+
+};
+
+SVGEO.prototype.render = function (target = null, { overwrite = true } = {}) {
+
+    if (!target) return;
+
+    if(typeof target ==='string'){
+        target = document.querySelector(`${target}`);
+
+    }
+
+   if(!target.nodeName) return
+
+    if (target) {
+        let svgEl = new DOMParser().parseFromString(this.svg, 'text/html').querySelector('svg');
+
+        // delete all
+        if (overwrite) {
+            [...target.children].forEach(child=>{child.remove();});
+        }
+
+        // add to object
+        this.svgEl = svgEl;
+        target.append(svgEl);
+    }
+};
+
+SVGEO.prototype.getGeoJson = function ({ decimals = -1, name = 'svgeomin', properties = [] } = {}) {
+    let geogeoData = {
+        type: "FeatureCollection",
+        name,
+        features: [],
+    };
+
+    let propertiesFiltered = properties;
+
+    for (let feature of this.featureArr) {
+        let { properties, polys } = feature;
+
+        let type = polys.length > 1 ? "MultiPolygon" : "Polygon";
+
+        if (decimals > -1) {
+            polys = polys.map(poly => poly.map(pt => pt.map(val => +val.toFixed(decimals))));
+        }
+
+        let polysN = type === 'MultiPolygon' ? polys.map(poly => [poly]) : polys;
+
+        let propertiesN = {};
+        for (let prop in properties) {
+            if (propertiesFiltered.length && propertiesFiltered.includes(prop)) {
+                propertiesN[prop] = properties[prop];
+            }
+        }
+
+        let featureN = {
+            type: 'Feature',
+            properties: propertiesN,
+            geometry: {
+                type,
+                coordinates:
+                    polysN
+            }
+        };
+        geogeoData.features.push(featureN);
+    }
+
+    return geogeoData
+
+};
 
 if (typeof window !== 'undefined') {
     window.svgFromGeo = svgFromGeo;

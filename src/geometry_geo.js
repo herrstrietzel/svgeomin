@@ -1,6 +1,7 @@
 
 
-let degToRad = Math.PI / 180;
+export const degToRad = Math.PI / 180;
+export const radToDeg = 180/Math.PI;
 
 
 
@@ -62,8 +63,8 @@ export function mercatorProject(lon = 0, lat = 0, scale = 1, decimals = -1, reve
   let m = 85.05112878;
 
   if (revert) {
-    let normX = x / scale;
-    let normY = y / scale;
+    let normX = x/scale;
+    let normY = y/scale;
 
     let lonDeg = normX * 360 - 180;
     let latRad = 2 * Math.atan(Math.exp(Math.PI - normY * 2 * Math.PI)) - Math.PI / 2;

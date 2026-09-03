@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Geo search</title>
+
+    <link rel="icon" href="../favicon.svg" type="image/svg+xml">
+
+    <!-- leaflet -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+
+
+    <!-- UI -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/enhance-inputs@0.4.1/dist/enhanceInputs.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/enhance-inputs@0.4.1/dist/enhanceInputs.js" defer=""></script>
+
+
+    <!-- app -->
+    <script type="module" src="js/app_geosearch.js"></script>
+    <link rel="stylesheet" href="css/style_geosearch.css">
+
+
+
+</head>
+
+<body data-enhance-inputs='{"storageName":"", "getQuery":true, "cacheToStorage":false,"icons":"all"}'
+    data-details='{"icon":"plus"}'>
+
+    <div class="wrp pdd-1em grd grd-main">
+
+        <aside class="aside">
+            <h1>Geosearch</h1>
+
+            <div class="form-wrap">
+                <p>
+                    <label for="inpAddress">Address</label>
+                    <input id="inpAddress" type="text" name="address" value="" spellcheck="false" list="geoSearches">
+                </p>
+
+                <!-- auto complete address-->
+                <datalist id="geoSearches">
+                </datalist>
+
+
+                <div class="grd grd-1 grd-md-2 gap-1em">
+                    <p class="p-field">
+                        <label for="inpLon">Longitude</label>
+                        <input id="inpLon" type="text" inputmode="numeric" name="lon">
+                    </p>
+                    <p class="p-field">
+                        <label for="inpLat">Latitude</label>
+                        <input id="inpLat" type="text" inputmode="numeric" name="lat">
+                    </p>
+                </div>
+
+                <p>
+                    <label class="fnt-wgt-700" for="inpZoom">Zoom</label>
+                        <input type="range" id="inpZoom" value="10" min="1" max="20" step="1" data-type="range-number">
+                </p>
+
+                <p><label><input type="checkbox" data-type="checkbox-switch" name="reverse" id="inpReverse">Reverse
+                        (find address)</label></p>
+
+                <details class="mrg-1em mrg-btt" open>
+                    <summary class="fnt-wgt-700">SearchData</summary>
+                    <div class="geodata">
+                        <textarea name="geodata" id="textareaGeojsonResult">
+                </textarea>
+                    </div>
+                </details>
+
+
+                <details class="mrg-1em mrg-btt" open>
+                    <summary class="fnt-wgt-700">GeoJson</summary>
+                    <label>FeatureCollection
+                        <textarea id="textareaGeoJson" data-tools="size copy" name="textGeoJson">
+                    </textarea>
+                    </label>
+                    <p><label><input id="inpRenderGeoJson" name="RenderGeoJson" type="checkbox"
+                                data-type="checkbox-switch">Render GeoJson on map</label></p>
+                </details>
+
+
+
+
+
+            </div>
+        </aside>
+
+
+        <main class="main">
+            <div id="map" class="leafletMap"></div>
+        </main>
+
+    </div>
+
+
+</body>
+
+</html>

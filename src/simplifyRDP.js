@@ -5,10 +5,11 @@ import { getPolyBBox_arr, getPolygonArea_arr } from "./geometry_arr.js";
  * polygon simplification
  */
 
-export function simplifyRDP(pts = [], sqTolerance = 0.01, normalizeDirection = false, protectBB=false) {
+export function simplifyRDP(pts = [], sqTolerance = 0.01, normalizeDirection = false, bb={}) {
     if (pts.length <= 2) return pts;
 
-    let bb = protectBB ? getPolyBBox_arr(pts) : {};
+    let protectBB = Object.keys(bb).length;
+    //bb = protectBB ? getPolyBBox_arr(pts) : {};
     let { x=0, y=0, right=0, bottom=0 } = bb;
 
     /**

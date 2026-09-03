@@ -79,6 +79,55 @@ export default [
                 plugins: [terser()]
             },
         ]
+    },
+
+
+    // geosearch helpers
+    {
+        input: 'src/index_geosearch.js',
+        output: [
+            {
+                file: `dist/${libName}_geosearch.esm.js`,
+                format: 'es',
+                exports: 'named',
+                plugins: [stripDevComments()]
+            },
+            {
+                file: `dist/${libName}_geosearch.esm.min.js`,
+                format: 'es',
+                exports: 'named',
+                plugins: [terser()]
+            },
+        ]
+    },
+    // iife
+    {
+        input: 'src/index_geosearch.js',
+        output: [
+            {
+                file: `dist/${libName}_geosearch.js`,
+                format: 'iife',
+                //name: libName+'_geosearch',
+                name: libName,
+                extend: true,
+                exports: 'named',
+                plugins: [stripDevComments()]
+            },
+            {
+                file: `dist/${libName}_geosearch.min.js`,
+                //name: libName+'_geosearch',
+                name: libName,
+                extend: true,
+                exports: 'named',
+                plugins: [terser()]
+            },
+        ]
     }
+
+
+
+
+
+
 ];
 

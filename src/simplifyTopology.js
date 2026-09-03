@@ -1,8 +1,9 @@
-import { getPolyBBox_arr } from "./geometry_arr.js";
+//import { getPolyBBox_arr } from "./geometry_arr.js";
+//import { polyPtsToArray, toPointArray } from "./poly_normalize.js";
 import { simplifyRDP } from "./simplifyRDP.js";
+import { unitePolygonPts } from "./simplify_unite_polygon.js";
 
-export function simplifyPolyGroups(groups = [], chunkData = {}, sqTolerance = 0.1, normalizeDirection=false, protectBB = true) {
-
+export function simplifyPolyGroups(groups = [], chunkData = {}, sqTolerance = 0.1, normalizeDirection = false, protectBB = true) {
 
     /**
      * Includes signature in key to distinguish between 
@@ -22,6 +23,7 @@ export function simplifyPolyGroups(groups = [], chunkData = {}, sqTolerance = 0.
         ...g,
         polys: g.polys.map(p => [...p])
     }));
+
 
     for (let key in chunkData) {
         let [groupIdx, polyIdx] = key.split('_').map(Number);
@@ -47,9 +49,19 @@ export function simplifyPolyGroups(groups = [], chunkData = {}, sqTolerance = 0.
             } else {
 
                 // Compute simplification once and store in cache
-                simplifiedChunk = simplifyRDP(chunk, sqTolerance, normalizeDirection, protectBB);
-                //console.log(simplifiedChunk);
-                //simplifiedChunk = chunk;
+                let bb = protectBB ?
+                    (groups[groupIdx]?.bboxes[polyIdx] || {})
+                    : {};
+
+                let item = groups[groupIdx];
+
+                // skip RDP for tiny polygons
+                if(item.tinyPolys.includes(polyIdx)){
+                    simplifiedChunk = chunk;
+                }else{
+                    simplifiedChunk = simplifyRDP(chunk, sqTolerance, normalizeDirection, bb);
+                }
+
                 arcCache.set(cacheKey, simplifiedChunk);
             }
 
@@ -66,6 +78,17 @@ export function simplifyPolyGroups(groups = [], chunkData = {}, sqTolerance = 0.
         fullPoly = polyStartToBottomMost(fullPoly);
         //console.log({fullPoly});
 
+        /**
+         * unite self intersections
+         * only for higher simplification thresholds
+         */
+        let unitePoly = sqTolerance > 0.001;
+        unitePoly = false
+        //console.log(unitePoly);
+        if (unitePoly) {
+            fullPoly = unitePolygonPts(fullPoly)
+        }
+
         updatedGroups[groupIdx].polys[polyIdx] = fullPoly;
     }
 
@@ -81,12 +104,12 @@ export function polyStartToBottomMost(poly = []) {
     if (len < 3) return poly;
 
     let bottomIdx = 0;
-    let maxY = 0; 
+    let maxY = 0;
 
     for (let i = 0; i < len; i++) {
         let [x, y] = poly[i];
 
-        if (y > maxY ) {
+        if (y > maxY) {
             maxY = y;
             bottomIdx = i;
         }

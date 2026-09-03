@@ -4,104 +4,179 @@
  * polygons into shared & unshared 
  * continuous arc chunks.
  */
+function doBBoxesIntersect(a, b) {
+    return !(
+        a.right < b.left ||
+        a.left > b.right ||
+        a.bottom < b.top ||
+        a.top > b.bottom
+    );
+}
 
 export function getPolyChunks(groups = []) {
+    let polyMeta = [];
 
-    let getPtKey = (pt) => `${pt[0]},${pt[1]}`;
-
-    // Map every undirected edge to the list of polygons that contain it
-    let edgeMap = new Map();
-
+    // Flatten polygons and pre-identify overlapping candidates via bounding boxes
     groups.forEach((group, groupIdx) => {
+
+
         group.polys.forEach((poly, polyIdx) => {
-            let numPts = poly.length;
-            if (numPts < 2) return;
+            let bbox = group.bboxes ? group.bboxes[polyIdx] : null;
 
-            let polyId = `${groupIdx}_${polyIdx}`;
-
-            for (let i = 0; i < numPts; i++) {
-                let nextI = (i + 1) % numPts;
-                let p1 = getPtKey(poly[i]);
-                let p2 = getPtKey(poly[nextI]);
-
-                // Undirected edge key
-                let edgeKey = p1 < p2 ? `${p1}|${p2}` : `${p2}|${p1}`;
-
-                if (!edgeMap.has(edgeKey)) {
-                    edgeMap.set(edgeKey, new Set());
-                }
-                edgeMap.get(edgeKey).add(polyId);
-            }
+            polyMeta.push({
+                groupIdx,
+                polyIdx,
+                polyId: `${groupIdx}_${polyIdx}`,
+                poly,
+                bbox,
+                hasOverlapCandidate: false
+            });
         });
     });
 
-    // Extract continuous chunks for each polygon
+    let totalPolys = polyMeta.length;
+
+    // Determine if each polygon intersects with at least one other polygon
+    for (let i = 0; i < totalPolys; i++) {
+        let metaA = polyMeta[i];
+        if (!metaA.bbox) {
+            metaA.hasOverlapCandidate = true; // Fallback if no bbox provided
+            continue;
+        }
+
+        for (let j = i + 1; j < totalPolys; j++) {
+            let metaB = polyMeta[j];
+            if (!metaB.bbox) continue;
+
+            if (doBBoxesIntersect(metaA.bbox, metaB.bbox)) {
+                metaA.hasOverlapCandidate = true;
+                metaB.hasOverlapCandidate = true;
+            }
+        }
+    }
+
+    let edgeMap = new Map();
+
+    // 2. Register edges ONLY for polygons that have bounding box overlaps
+    polyMeta.forEach(meta => {
+        if (!meta.hasOverlapCandidate) return;
+
+        let poly = meta.poly;
+        let numPts = poly.length;
+        if (numPts < 2) return;
+
+        for (let i = 0; i < numPts; i++) {
+            let nextI = (i + 1) % numPts;
+            let pt1 = poly[i];
+            let pt2 = poly[nextI];
+
+            // Integer/String coordinate key without excessive temporary strings
+            let p1 = `${pt1[0]},${pt1[1]}`;
+            let p2 = `${pt2[0]},${pt2[1]}`;
+            let edgeKey = p1 < p2 ? `${p1}|${p2}` : `${p2}|${p1}`;
+
+            let entry = edgeMap.get(edgeKey);
+            if (!entry) {
+                entry = [];
+                edgeMap.set(edgeKey, entry);
+            }
+            if (!entry.includes(meta.polyId)) {
+                entry.push(meta.polyId);
+            }
+        }
+    });
+
+    // Cache sorted owner signatures to avoid recalculating identical edge ownership strings
+    //let sigCache = new Map();
+    let getSortedSig = (ownersArray) => {
+        if (ownersArray.length === 1) return ownersArray[0];
+        ownersArray.sort();
+        let key = ownersArray.join('|');
+        return key;
+    };
+
     let chunkData = {};
 
-    groups.forEach((group, groupIdx) => {
-        group.polys.forEach((poly, polyIdx) => {
-            let key = `${groupIdx}_${polyIdx}`;
-            let numPts = poly.length;
-            if (numPts < 2) return;
+    // 3. Extract continuous chunks
+    polyMeta.forEach(meta => {
+        let { polyId, poly, hasOverlapCandidate } = meta;
+        let numPts = poly.length;
+        if (numPts < 2) return;
 
-            let segmentSignatures = new Array(numPts);
-            for (let i = 0; i < numPts; i++) {
-                let nextI = (i + 1) % numPts;
-                let p1 = getPtKey(poly[i]);
-                let p2 = getPtKey(poly[nextI]);
-                let edgeKey = p1 < p2 ? `${p1}|${p2}` : `${p2}|${p1}`;
-
-                let owners = Array.from(edgeMap.get(edgeKey)).sort();
-                segmentSignatures[i] = owners.join('|');
-            }
-
-            // Find junction points where neighbor signatures change
-            let splitIndices = new Set();
-            for (let i = 0; i < numPts; i++) {
-                let prevI = (i - 1 + numPts) % numPts;
-                if (segmentSignatures[i] !== segmentSignatures[prevI]) {
-                    splitIndices.add(i);
-                }
-            }
-
-            let splits = Array.from(splitIndices).sort((a, b) => a - b);
-            if (splits.length === 0) {
-                splits = [0];
-            }
-
-            // Extract chunks between junction split indices
-            let chunks = [];
-            let chunkSignatures = [];
-
-            for (let k = 0; k < splits.length; k++) {
-                let startIdx = splits[k];
-                let endIdx = splits[(k + 1) % splits.length];
-
-                let chunk = [];
-                let curr = startIdx;
-
-                // Handles ring traversal, including full loops when splits.length === 1
-                do {
-                    chunk.push(poly[curr]);
-                    curr = (curr + 1) % numPts;
-                } while (curr !== endIdx);
-
-                chunk.push(poly[endIdx]);
-
-                chunks.push(chunk);
-                chunkSignatures.push(segmentSignatures[startIdx]);
-            }
-
-            let shared_chunk_indices = chunkSignatures
-                .map((sig, idx) => (sig.includes('|') ? idx : -1))
-                .filter(idx => idx !== -1);
-
-            chunkData[key] = {
-                chunks,
-                chunkSignatures,
-                shared_chunk_indices
+        // Fast path: Polygon bbox does not touch any other polygon
+        if (!hasOverlapCandidate) {
+            chunkData[polyId] = {
+                chunks: [[...poly, poly[0]]],
+                chunkSignatures: [polyId],
+                shared_chunk_indices: []
             };
-        });
+            return;
+        }
+
+        let segmentSignatures = new Array(numPts);
+
+        for (let i = 0; i < numPts; i++) {
+            let nextI = (i + 1) % numPts;
+            let pt1 = poly[i];
+            let pt2 = poly[nextI];
+
+            let p1 = `${pt1[0]},${pt1[1]}`;
+            let p2 = `${pt2[0]},${pt2[1]}`;
+            let edgeKey = p1 < p2 ? `${p1}|${p2}` : `${p2}|${p1}`;
+
+            let owners = edgeMap.get(edgeKey);
+            if (!owners) {
+                segmentSignatures[i] = polyId;
+            } else {
+                segmentSignatures[i] = getSortedSig(owners);
+            }
+        }
+
+        // Identify split indices where signatures change
+        let splits = [];
+        for (let i = 0; i < numPts; i++) {
+            let prevI = (i - 1 + numPts) % numPts;
+            if (segmentSignatures[i] !== segmentSignatures[prevI]) {
+                splits.push(i);
+            }
+        }
+
+        if (splits.length === 0) {
+            splits = [0];
+        }
+
+        let chunks = [];
+        let chunkSignatures = [];
+        let shared_chunk_indices = [];
+
+        for (let k = 0; k < splits.length; k++) {
+            let startIdx = splits[k];
+            let endIdx = splits[(k + 1) % splits.length];
+
+            let chunk = [];
+            let curr = startIdx;
+
+            do {
+                chunk.push(poly[curr]);
+                curr = (curr + 1) % numPts;
+            } while (curr !== endIdx);
+
+            chunk.push(poly[endIdx]);
+
+            let sig = segmentSignatures[startIdx];
+            chunks.push(chunk);
+            chunkSignatures.push(sig);
+
+            if (sig.includes('|')) {
+                shared_chunk_indices.push(k);
+            }
+        }
+
+        chunkData[polyId] = {
+            chunks,
+            chunkSignatures,
+            shared_chunk_indices
+        };
     });
 
     return chunkData;
