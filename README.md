@@ -184,8 +184,8 @@ To prevent this we first analyze the topology of all filtered features to detect
 * disable anti-aliasing via SVG [`shape-rendering`](https://developer.mozilla.org/en-US/docs/Web/SVG/Reference/Attribute/shape-rendering) attribute: `shape-rendering="crispEdges"` should do the trick.
 
 ## Demos
-*   [SVG from GeoJson (basic)](https://herrstrietzel.github.io/svgeomin/demo/basic.html) [codepen](https://codepen.io/herrstrietzel/pen/XJMXNxN?editors=1010)
-*   [Apply options: filter and simplify](https://herrstrietzel.github.io/svgeomin/demo/options.html)
+*   [SVG from GeoJson (basic)](https://herrstrietzel.github.io/svgeomin/demo/basic.html) | [codepen](https://codepen.io/herrstrietzel/pen/XJMXNxN?editors=1010)
+*   [Apply options: filter and simplify](https://herrstrietzel.github.io/svgeomin/demo/options.html) | [codepen](https://codepen.io/herrstrietzel/pen/dPvGOLm?editors=1010)
 *   [filtered and add markers](https://herrstrietzel.github.io/svgeomin/demo/filtered_features_markers.html)
 *   [Get filtered and minified GeoJson (only selected features)](https://herrstrietzel.github.io/svgeomin/demo/filter_geojson.html)
 *   [SVG to GeoJson (reverse projection)](https://herrstrietzel.github.io/svgeomin/demo/svg2geo.html)
