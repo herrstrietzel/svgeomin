@@ -6,7 +6,7 @@
     "type": "git",
     "url": "git+https://github.com/herrstrietzel/svgeomin.git"
   },
-  "keywords": [],
+  "keywords": ["svg", "geojson", "map", "simplification"],
   "author": "herrstrietzel",
   "license": "MIT",
   "bugs": {
