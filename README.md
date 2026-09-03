@@ -1,3 +1,9 @@
+[![npm version](https://img.shields.io/npm/v/svgeomin)](https://www.npmjs.com/package/svgeomin)
+[![license](https://img.shields.io/npm/l/svgeomin)](https://www.npmjs.com/package/svgeomin)
+[![CDN](https://img.shields.io/badge/CDN-jsDelivr-E84D3D?style=flat)](https://cdn.jsdelivr.net/npm/svgeomin@latest/dist/svgeomin.min.js)
+[![CDN](https://img.shields.io/badge/CDN-unpkg-blue?style=flat)](https://www.unpkg.com/svgeomin@latest/dist/svgeomin.js)
+
+
 
 <div align="center" style="text-align:center">
 <img width="100" height="100" style="display:inline-block" src="./favicon.svg">
@@ -34,6 +40,23 @@ To put it differently:
 * your focus is on interactive map applications
 
 ## Usage
+
+Svgeomin can be loaded as IIFE or ESM module.
+
+For testing you can require it via CDN e.g
+
+### CDN
+
+**IIFE**  
+```html
+<script src="https://cdn.jsdelivr.net/npm/potrace-plus@latest/dist/potrace-plus.min.js"></script>
+
+```
+**ESM**  
+```js
+import potracePlus from 'https://cdn.jsdelivr.net/npm/potrace-plus@latest/+esm'
+```
+
 
 ### Basic example: render from src URL
 
