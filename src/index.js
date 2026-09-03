@@ -1,14 +1,12 @@
 import {svgFromGeo, SVGEO} from './main.js';
 import {filterGeoData} from './geojson_filter.js';
+import {svg2GeoJson} from './geojson_from_svg.js';
+
+export {svg2GeoJson as svg2GeoJson};
 export {filterGeoData as filterGeoData};
 export {svgFromGeo as svgFromGeo};
 
-/*
-// object for chainable methods
-export function SVGEO(props = {}) {
-    Object.assign(this, props)
-}
-*/
+
 
 SVGEO.prototype.getUrl = function ( { data='svg', decimals=-1, addXlink=false, addDimensions=true, dataUrl = false } = {}) {
     let url = ''
@@ -141,6 +139,7 @@ SVGEO.prototype.getGeoJson = function ({ decimals = -1, name = 'svgeomin', prope
 
 
 if (typeof window !== 'undefined') {
+    window.svg2GeoJson = svg2GeoJson;
     window.svgFromGeo = svgFromGeo;
     window.filterGeoData = filterGeoData;
 }

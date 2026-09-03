@@ -1,6 +1,6 @@
 {
   "name": "svgeomin",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "",
   "repository": {
     "type": "git",
@@ -13,13 +13,12 @@
     "url": "https://github.com/herrstrietzel/svgeomin/issues"
   },
   "homepage": "https://github.com/herrstrietzel/svgeomin#readme",
-  "main": "./dist/svgeomin.node.js",
+  "main": "./dist/svgeomin.js",
   "module": "./dist/svgeomin.esm.js",
   "browser": "./dist/svgeomin.js",
   "exports": {
     ".": {
-      "import": "./dist/svgeomin.esm.js",
-      "require": "./dist/svgeomin.node.js"
+      "import": "./dist/svgeomin.esm.js"
     },
     "./dist/svgeomin.esm.js": "./dist/svgeomin.esm.js",
     "./dist/svgeomin.js": "./dist/svgeomin.js",

@@ -8,25 +8,42 @@
 
 ## Key features
 *svgeomin* has a strong focus on SVG application – most importantly creating lightweight SVG map assets. However, it also comes with some handy geoJson helpers to reduce a given data source to the actually needed geo features.
-
 * topology aware Ramer-Douglas-Peucker polygon simplification for Geojson supsets and SVG
 * removal of small sub features e.g islands or exclaves 
 * advanced SVG pathData minification (e.g relative commands)
 * multiple projection modes: Web Mercator, Miller, Behrmann, Equi-rectangular
 * property based filtering of geodata feautures for subset creation
+* convert/revert SVG to geoJson
+* add markers to SVG using common lon/lat coordinates
 
 
 ## The challenges of geodata (why another library)
 Geojsons are most often massive – 10K+ of coordinates are rather the lower end of the scale. For reasonably sized SVG assets, geometry simplifications are rather mandatory. But when we apply these (Ramer Douglas Peucker, Visvalingam etc) for each feature (e.g country border) individually we often get gaps between polygon edges. 
 
-Advanced map/geodata libraries have developed solutions such as the TopoJson superset for specifying shared polygon edges to allow for predictable simplification results.
-However, these libraries are more focused on map specific use cases and highly complex. Besides, they often provide only basic control over the SVG output – resulting in rather huge markup sizes
+Advanced map/geodata or data visualization libraries – e.g [d3](https://github.com/d3/d3) – have developed sophisticated solutions such as the [TopoJson](https://github.com/topojson/topojson ) superset for specifying shared polygon edges to allow for predictable simplification results.
+
+However, these libraries are more focused on map specific use cases and highly complex. Besides, they often provide only basic control over the SVG output – resulting in rather huge markup sizes.
+
+To put it differently: 
+### svgeomin might be interesting if …
+* you just need a convenient way to create compact svg maps
+* shrink a massive geojson to used features
+
+### not very suitable for you if …
+* if you're already a d3 or map pro 
+* your focus is on interactive map applications
 
 ## Usage
 
 ### Basic example: render from src URL
+
+Svgeomin allows multiple input formats: 
+* geojson URL (requires async function call)
+* stringified geojson
+* parsed geojson object
+
 ```js
-// esm
+// ESM import – not needed for IIFE build
 import { svgFromGeo } from "./dist/svgeomin.esm.js";
 
 // static geojson asset
@@ -43,11 +60,14 @@ let geoDataUrl = 'geoData.geojson';
     svGeo.render(target)
 })();
 ```
-See [basic.html](demo/basic.html).
+See [basic.html](https://herrstrietzel.github.io/svgeomin/demo/basic.html).
 
 ### With options: Filter features and simplify
+You can filter geodata features by property names e.g to show only a selection of countries.
+Also, you can apply multiple options e.g for Ramer-Douglas-Peucker simplification.  
+
 ```js
-// esm
+// ESM import – not needed for IIFE build
 import { svgFromGeo } from "./dist/svgeomin.esm.js";
 
 // static geojson asset
@@ -78,12 +98,64 @@ let geoDataUrl = 'geoData.geojson';
     svGeo.render(target)
 })();
 ```
-See [demo/options.html](demo/demo/options.html).
+See [demo/options.html](https://herrstrietzel.github.io/svgeomin/demo/options.html).
+
+## Options
+
+| method | type/arguments | description | default/values |
+|--|--|--|--|
+|features|array|features to filter|empty|
+|properties|array|properties to include in filtered Geojson and SVG output|empty|
+|exclude|array|exclude feature items by property values|empty|
+|scale|number|scale to reasonable coordinate space to avoid floating points and tiny SVG viewBoxes|10000|
+|simplify|number|threshold for RDP simplification ~in km|0|
+|minArea|number|remove small feautes e.g islands or exclaves by km² threshold (sloppy area approximation) |0|
+|split|number/Boolean|create path el for each sub poly e.g islands |0|
+|meta|number/Boolean|add meta for original geodata reference in SVG |0|
+|classPre|string|CSS classname prefix for SVG elements |'svgeomin'|
+|css|string|append CSS `<style>` element to SVG |''|
+|cssInline|string|main svg inline css |''|
+|projection|string: `mercator`,`miller`, `equirectangular` (Plate carrée), `behrmann` |projection method. See [wikipedia: List of map projections](https://en.wikipedia.org/wiki/List_of_map_projections)  |'mercator' (Web Mercator)|
+|markers|array| add map markers to SVG |empty|
+|**marker params**|| ||
+|lon|number| longitude |0|
+|lat|number| latitude |0|
+|icon|string| Add custom SVG icon: Accepts SVG markup or pathData strings |'' – inserts default marker icon|
+|bb|array| controls alignment of custom icon: `x`, `y`, `width`, `height` |[0,0,24,24]|
+|width|number| controls size of marker icon |24|
+|styles|object/string| Add CSS properties for markers: CSS string or object. When using objects you need to camleCase property names (e.g `strokeWidth`) |''|
+|meta|object| adds properties as data-attributes to marker element |0|
+
+## Topology aware simplification
+When applying polygon simplification algorithms (e.g Ramer Douglas Peucker) on adjacent/neighboring polygons we often get gaps between shapes. 
+
+To prevent this we first analyze the topology of all filtered features to detect shared polygon arcs to ensure a consistent edge simplification.
+
+### ... erm, but I still see tiny gaps?
+1. The aforementioned topology simplification takes for granted the GeoData itself doesn't have any gaps
+2. if you notice thin hairlines in SVG rendering: it is simply due to sub-pixel rendering. Anti-aliasing will inevitable produce tiny gaps due to pixel-grid fitting problems. 
+
+**Quick fix** 
+* Apply a thin stroke to your paths
+* disable anti-aliasing via SVG [`shape-rendering`](https://developer.mozilla.org/en-US/docs/Web/SVG/Reference/Attribute/shape-rendering) attribute: `shape-rendering="crispEdges"` should do the trick.
 
 
+## Credits
+* Sample geojson was retrieved from [nvkelso's natural-earth-vector](https://github.com/nvkelso/natural-earth-vector)
+* [Leaflet](https://github.com/leaflet/Leaflet): Volodymyr Agafonkin and contributors. Leaflet is used in geojson sample rendering and geo search helper
+* [osm-search/nominatim](https://github.com/osm-search/Nominatim) – used in geo search helper 
 
 
-
-#### Recommendations (tools and documentations)
+### Recommendations (tools and documentations)
 * [geojson.io](https://geojson.io): A webapp to inspect and edit geojson data
 * [svg-path-editor](https://yqnn.github.io/svg-path-editor): A webapp to inspect and edit SVG pathdata
+* [wikipedia: List of map projections](https://en.wikipedia.org/wiki/List_of_map_projections)
+
+### Related projects
+* [poly-simplify](https://github.com/herrstrietzel/poly-simplify): Simplify/reduce polylines/polygon vertices in JS
+* [svg-path-simplify](https://github.com/herrstrietzel/svg-path-simplify): Simplify SVG Bézier paths while maintaining their shape
+
+
+
+
+

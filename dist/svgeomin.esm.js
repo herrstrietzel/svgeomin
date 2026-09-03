@@ -1281,14 +1281,18 @@ async function svgFromGeo(geoData = {}, {
     // properties to include in SVG
     properties = [],
     // exclude property values
+
     exclude = [],
+
     // scale to reasonable coordinate space
     scale = 10000,
 
-    // autoscale tiny features
-
     // coordinate rounding: integers are best!
     decimals = 0,
+
+    // projection method
+    projection = 'mercator',
+
     // threshold for RDP simplification in km
     simplify = 0,
 
@@ -1301,13 +1305,11 @@ async function svgFromGeo(geoData = {}, {
     // add meta for original geodata reference
     meta = 1,
 
-    // CSS prefix
-    classPre = 'svgmin',
-
-    projection = 'mercator',
-
     // add map markers
     markers=[],
+
+    // CSS prefix
+    classPre = 'svgeomin',
 
     // append CSS
     css='',
@@ -1697,6 +1699,497 @@ async function svgFromGeo(geoData = {}, {
 
 }
 
+function parsePathDataNormalized(d, {
+    toAbsolute = true,
+    toLonghands = true,
+} = {}) {
+
+    d = d
+        // remove new lines, tabs an comma with whitespace
+        .replace(/[\n\r\t|,]/g, " ")
+        // pre trim left and right whitespace
+        .trim()
+        // add space before minus sign
+        .replace(/(\d)-/g, '$1 -')
+        // decompose multiple adjacent decimal delimiters like 0.5.5.5 => 0.5 0.5 0.5
+        .replace(/(\.)(?=(\d+\.\d+)+)(\d+)/g, "$1$3 ");
+
+    let pathData = [];
+    let cmdRegEx = /([mlcqazvhst])([^mlcqazvhst]*)/gi;
+    let commands = d.match(cmdRegEx);
+
+    // valid command value lengths
+    let comLengths = { m: 2, a: 7, c: 6, h: 1, l: 2, q: 4, s: 4, t: 2, v: 1, z: 0 };
+
+    // collect errors in debug mode
+    let firstCommand = d.substring(0, 1).toLowerCase();
+    let hasM = firstCommand == 'm';
+
+    // offsets for absolute conversion
+    let offX, offY, lastX, lastY, M, lastType = 'm';
+
+    // no M starting command – return dummy pathdata
+    if (!hasM) {
+        console.warn('No starting M command');
+        return [];
+    }
+
+    for (let c = 0; c < commands.length; c++) {
+        let com = commands[c];
+        let type = com.substring(0, 1);
+        let typeRel = type.toLowerCase();
+        let typeAbs = type.toUpperCase();
+        let isRel = type === typeRel;
+        let chunkSize = comLengths[typeRel];
+
+        // split values to array
+        let values = com.substring(1, com.length)
+            .trim()
+            .split(" ").filter(Boolean);
+
+        /**
+         * A - Arc commands
+         * large arc and sweep flags
+         * are boolean and can be concatenated like
+         * 11 or 01
+         * or be concatenated with the final on path points like
+         * 1110 10 => 1 1 10 10
+         */
+        if (typeRel === "a" && values.length != comLengths.a) {
+
+            let n = 0,
+                arcValues = [];
+            for (let i = 0; i < values.length; i++) {
+                let value = values[i];
+
+                // reset counter
+                if (n >= chunkSize) {
+                    n = 0;
+                }
+                // if 3. or 4. parameter longer than 1
+                if ((n === 3 || n === 4) && value.length > 1) {
+                    let largeArc = n === 3 ? value.substring(0, 1) : "";
+                    let sweep = n === 3 ? value.substring(1, 2) : value.substring(0, 1);
+                    let finalX = n === 3 ? value.substring(2) : value.substring(1);
+                    let comN = [largeArc, sweep, finalX].filter(Boolean);
+                    arcValues.push(comN);
+                    n += comN.length;
+                } else {
+                    // regular
+                    arcValues.push(value);
+                    n++;
+                }
+            }
+            values = arcValues.flat().filter(Boolean);
+        }
+
+        if (typeRel === "a" && (values[3] > 1 || values[4] > 1 || values[3] < 0 || values[4] < 0)) {
+            console.warn(`${c}. command (${type}) has invalid flag values: ${values[3]} ${values[4]}`);
+            return []
+        }
+
+        // string  to number
+        values = values.map(Number);
+
+        // if string contains repeated shorthand commands - split them
+        let hasMultiple = values.length > chunkSize;
+        let chunk = hasMultiple ? values.slice(0, chunkSize) : values;
+        let comChunks = [{ type: type, values: chunk }];
+
+        if (comChunks[0].values.length < chunkSize) {
+            console.warn(
+                `${c}. command (${type}) has ${chunk.length
+                }/${chunkSize} - ${chunk.length} values too few `
+            );
+            return []
+        }
+
+        // has implicit or repeated commands – split into chunks
+        if (hasMultiple) {
+            let typeImplicit = typeRel === "m" ? (isRel ? "l" : "L") : type;
+            for (let i = chunkSize; i < values.length; i += chunkSize) {
+                let chunk = values.slice(i, i + chunkSize);
+                comChunks.push({ type: typeImplicit, values: chunk });
+                if (chunk.length !== chunkSize) {
+
+                    let overhead = Math.ceil(chunkSize / chunk.length);
+                    let ideal = overhead * chunkSize;
+                    let feedback = chunk.length < ideal ? 'too few' : 'too many';
+                    let diff = Math.abs(chunk.length + chunkSize - ideal);
+
+                    console.warn(`${i}. command (${type}) has ${chunk.length + chunkSize} values - ${diff} values ${feedback} - should be ${overhead} commands with ${chunkSize} values per command`);
+
+                    return []
+                }
+            }
+        }
+
+        for (let i = 0, len = comChunks.length; i < len; i++) {
+            let com = comChunks[i];
+            if (com.type.toLowerCase() !== 'm' && lastType === 'z') {
+                hasRelative = true;
+                comChunks.splice(i, 0, { type: 'M', values: [M.x, M.y] });
+                i++;
+            }
+        }
+
+        /**
+         * convert to absolute 
+         * init offset from 1st M
+         */
+        if (c === 0) {
+            offX = values[0];
+            offY = values[1];
+            lastX = offX;
+            lastY = offY;
+            M = { x: values[0], y: values[1] };
+        }
+
+        let typeFirst = comChunks[0].type;
+        typeAbs = typeFirst.toUpperCase();
+
+        // first M is always absolute
+        isRel = typeFirst.toLowerCase() === typeFirst && pathData.length ? true : false;
+
+        for (let i = 0; i < comChunks.length; i++) {
+            let com = comChunks[i];
+            let type = com.type;
+            let values = com.values;
+            let valuesL = values.length;
+            let comPrev = comChunks[i - 1]
+                ? comChunks[i - 1]
+                : c > 0 && pathData[pathData.length - 1]
+                    ? pathData[pathData.length - 1]
+                    : comChunks[i];
+
+            let valuesPrev = comPrev.values;
+            let valuesPrevL = valuesPrev.length;
+            isRel = comChunks.length > 1 ? type.toLowerCase() === type && pathData.length : isRel;
+
+            if (isRel) {
+                com.type = comChunks.length > 1 ? type.toUpperCase() : typeAbs;
+
+                switch (typeRel) {
+                    case "a":
+                        com.values = [
+                            values[0],
+                            values[1],
+                            values[2],
+                            values[3],
+                            values[4],
+                            values[5] + offX,
+                            values[6] + offY
+                        ];
+                        break;
+
+                    case "h":
+                    case "v":
+                        com.values = type === "h" ? [values[0] + offX] : [values[0] + offY];
+                        break;
+
+                    case "m":
+                    case "l":
+                    case "t":
+
+                        if (type === 'm') {
+                            M = { x: values[0] + offX, y: values[1] + offY };
+                        }
+                        com.values = [values[0] + offX, values[1] + offY];
+                        break;
+
+                    case "c":
+                        com.values = [
+                            values[0] + offX,
+                            values[1] + offY,
+                            values[2] + offX,
+                            values[3] + offY,
+                            values[4] + offX,
+                            values[5] + offY
+                        ];
+                        break;
+
+                    case "q":
+                    case "s":
+                        com.values = [
+                            values[0] + offX,
+                            values[1] + offY,
+                            values[2] + offX,
+                            values[3] + offY
+                        ];
+                        break;
+
+                    case 'z':
+                    case 'Z':
+                        lastX = M.x;
+                        lastY = M.y;
+                        break;
+
+                }
+            }
+            // is absolute
+            else {
+                offX = 0;
+                offY = 0;
+
+                // set new M 
+                if (type === 'M') {
+                    M = { x: values[0], y: values[1] };
+                }
+
+            }
+
+            /**
+             * convert shorthands
+             */
+            let shorthandTypes = ["H", "V", "S", "T"];
+
+            if ((toLonghands && shorthandTypes.includes(typeAbs))) {
+                let cp1X, cp1Y, cpN1X, cpN1Y, cp2X, cp2Y;
+                if (com.type === "H" || com.type === "V") {
+                    com.values =
+                        com.type === "H" ? [com.values[0], lastY] : [lastX, com.values[0]];
+                    com.type = "L";
+                } else if (com.type === "T" || com.type === "S") {
+                    [cp1X, cp1Y] = [valuesPrev[0], valuesPrev[1]];
+                    [cp2X, cp2Y] =
+                        valuesPrevL > 2
+                            ? [valuesPrev[2], valuesPrev[3]]
+                            : [valuesPrev[0], valuesPrev[1]];
+
+                    // new control point
+                    cpN1X = com.type === "T" ? lastX * 2 - cp1X : lastX * 2 - cp2X;
+                    cpN1Y = com.type === "T" ? lastY * 2 - cp1Y : lastY * 2 - cp2Y;
+
+                    com.values = [cpN1X, cpN1Y, com.values].flat();
+                    com.type = com.type === "T" ? "Q" : "C";
+
+                }
+            }
+
+            // update last type for omitted M commands
+            lastType = type.toLowerCase();
+
+            // add to pathData array
+            pathData.push(com);
+
+            // update offsets
+            lastX =
+                valuesL > 1
+                    ? values[valuesL - 2] + offX
+                    : typeRel === "h"
+                        ? values[0] + offX
+                        : lastX;
+            lastY =
+                valuesL > 1
+                    ? values[valuesL - 1] + offY
+                    : typeRel === "v"
+                        ? values[0] + offY
+                        : lastY;
+            offX = lastX;
+            offY = lastY;
+        }
+    }
+
+    /**
+     * first M is always absolute/uppercase -
+     * unless it adds relative linetos
+     * (facilitates d concatenating)
+     */
+    pathData[0].type = "M";
+    return pathData;
+}
+
+/**
+ * split compound paths into 
+ * sub path data array
+ */
+
+function splitSubpaths(pathData) {
+    let subPathArr = [];
+    let current = [pathData[0]];
+    let l = pathData.length;
+
+    for (let i = 1; i < l; i++) {
+        let com = pathData[i];
+
+        if (com.type === 'M' || com.type === 'm') {
+            subPathArr.push(current);
+            current = [];
+        }
+        current.push(com);
+    }
+
+    if (current.length) subPathArr.push(current);
+
+    return subPathArr;
+}
+
+function svg2GeoJson(svg = null, { lonMin = 0, latMin = 0, lonMax = 0, latMax = 0, projection, decimals = 5, stringify = false } = {}) {
+
+    let svgEl = null;
+
+    if (typeof svg === 'string') {
+        try {
+            svgEl = new DOMParser().parseFromString(svg, 'image/svg+xml').querySelector('svg');
+        } catch {
+            console.warn('Could not parse SVG');
+        }
+    }
+    else if (typeof svg === 'object' && svg.nodeName.toLowerCase() === 'svg') {
+        svgEl = svg;
+    }
+
+    if (!svgEl) {
+        console.warn('Could not parse SVG');
+        return {}
+    }
+
+    let paths = svgEl.querySelectorAll('path');
+    let featureGroups = [];
+    let featureMeta = [];
+
+    // parse all paths
+    for (let i = 0, l = paths.length; l && i < l; i++) {
+        let path = paths[i];
+        let properties = Object.assign({}, path.dataset);
+        featureMeta.push(properties);
+        let d = path.getAttribute('d');
+        // normalize to all absolute
+        let pathData = parsePathDataNormalized(d);
+        // split sub paths
+        let pathDataArr = splitSubpaths(pathData);
+        featureGroups.push(pathDataArr);
+    }
+
+    /**
+     * convert to points
+     */
+    let groups = [];
+    let xArr = [];
+    let yArr = [];
+
+    for (let i = 0, l = featureGroups.length; l && i < l; i++) {
+        let pathDataArr = featureGroups[i];
+
+        let polys = [];
+
+        for (let j = 0, k = pathDataArr.length; j < k; j++) {
+            let pathData = pathDataArr[j];
+            let poly = [];
+
+            // sub paths
+            for (let c = 0, len = pathData.length; c < len; c++) {
+                let com = pathData[c];
+                let { type, values } = com;
+                // get final on-path points
+                let pt = values.slice(-2);
+                if (values.length) {
+                    xArr.push(pt[0]);
+                    yArr.push(pt[1]);
+                    poly.push(pt);
+                }
+            }
+            polys.push(poly);
+        }
+        groups.push(polys);
+    }
+
+    // calculate bbox
+    let xMin = Math.min(...xArr);
+    let yMin = Math.min(...yArr);
+    let xMax = Math.max(...xArr);
+    let yMax = Math.max(...yArr);
+    let bb = { x: xMin, y: yMin, width: xMax - xMin, height: yMax - yMin };
+
+    let scale = null;
+    let xOffset = 0;
+    let yOffset = 0;
+
+    let metaData = svgEl.dataset.svgeo ? JSON.parse(svgEl.dataset.svgeo) : null;
+
+    // retrieve scale and offsets from meta data attribute
+    if (metaData) {
+        console.log('use data attribute', { metaData });
+        scale = metaData.scale;
+        xOffset = metaData.x;
+        yOffset = metaData.y;
+    }
+    // calculate from projection and vertices
+    else {
+
+        // get scaling factor
+        let ptTL = projectPoint(lonMin, latMin, projection);
+        let ptBR = projectPoint(lonMax, latMax, projection);
+
+        let xMinG = Math.min(ptTL[0], ptBR[0]);
+        let xMaxG = Math.max(ptTL[0], ptBR[0]);
+        let yMinG = Math.min(ptTL[1], ptBR[1]);
+        let yMaxG = Math.max(ptTL[1], ptBR[1]);
+
+        let bbG = { x: xMinG, y: yMinG, width: xMaxG - xMinG, height: yMaxG - yMinG };
+        console.log({ bbG });
+
+        let scaleX = (bb.width / bbG.width.toFixed(4));
+        let scaleY = (bb.height / bbG.height.toFixed(4));
+        scale = Math.max(scaleX, scaleY);
+
+        xOffset = Math.round(bbG.x * scale);
+        yOffset = Math.round(bbG.y * scale);
+
+    }
+
+    /**
+     * project back to geo coordinates
+     */
+
+    // create geojson object
+    let geojson = {
+        type: "FeatureCollection",
+        name: "svgeo",
+        features: []
+    };
+
+    groups.forEach((polys, i) => {
+        // polys
+        let isMulti = polys.length > 1;
+
+        // add properties
+        let properties = featureMeta[i] ? featureMeta[i] : { id: `feature_${i}` };
+
+        let feature = {
+            type: "Feature",
+            properties,
+            geometry: {
+                type: isMulti ? "MultiPolygon" : "Polygon",
+                coordinates: []
+            }
+        };
+
+        let polysG = [];
+        polys.forEach((pts, j) => {
+
+            let polyG = [];
+            let revert = true;
+
+            // project pts
+            pts.forEach(pt => {
+                pt[0] = (pt[0] + xOffset);
+                pt[1] = (pt[1] + yOffset);
+                let ptG = projectPoint(0, 0, projection, scale, decimals, revert, pt[0], pt[1]);
+                polyG.push(ptG);
+            });
+            polysG.push(isMulti ? [polyG] : polyG);
+        });
+
+        feature.geometry.coordinates = polysG;
+        geojson.features.push(feature);
+
+    });
+
+    return stringify ? JSON.stringify(geojson) : geojson
+
+}
+
 SVGEO.prototype.getUrl = function ( { data='svg', decimals=-1, addXlink=false, addDimensions=true, dataUrl = false } = {}) {
     let url = '';
     let {svg='', svgEl=null, bb={}} = this;
@@ -1818,8 +2311,9 @@ SVGEO.prototype.getGeoJson = function ({ decimals = -1, name = 'svgeomin', prope
 };
 
 if (typeof window !== 'undefined') {
+    window.svg2GeoJson = svg2GeoJson;
     window.svgFromGeo = svgFromGeo;
     window.filterGeoData = filterGeoData;
 }
 
-export { filterGeoData, svgFromGeo };
+export { filterGeoData, svg2GeoJson, svgFromGeo };

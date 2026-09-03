@@ -21,15 +21,18 @@ export async function svgFromGeo(geoData = {}, {
     // properties to include in SVG
     properties = [],
     // exclude property values
+
     exclude = [],
+
     // scale to reasonable coordinate space
     scale = 10000,
 
-    // autoscale tiny features
-    //autoScale = true,
-
     // coordinate rounding: integers are best!
     decimals = 0,
+
+    // projection method
+    projection = 'mercator',
+
     // threshold for RDP simplification in km
     simplify = 0,
 
@@ -42,14 +45,11 @@ export async function svgFromGeo(geoData = {}, {
     // add meta for original geodata reference
     meta = 1,
 
-    // CSS prefix
-    classPre = 'svgmin',
-
-    projection = 'mercator',
-
-
     // add map markers
     markers=[],
+
+    // CSS prefix
+    classPre = 'svgeomin',
 
     // append CSS
     css='',
