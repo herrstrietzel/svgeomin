@@ -46,7 +46,7 @@
 ## The challenges of geodata (why another library)
 Geojsons are most often massive – 10K+ of coordinates are rather the lower end of the scale. For reasonably sized SVG assets, geometry simplifications are rather mandatory. But when we apply these (Ramer Douglas Peucker, Visvalingam etc) for each feature (e.g country border) individually we often get gaps between polygon edges. 
 
-Advanced map/geodata or data visualization libraries – e.g [d3](https://github.com/d3/d3) – have developed sophisticated solutions such as the [TopoJson](https://github.com/topojson/topojson ) superset for specifying shared polygon edges to allow for predictable simplification results.
+Advanced map/geodata or data visualization libraries – e.g [d3](https://github.com/d3/d3) or [mapshaper](https://mapshaper.org) – have developed sophisticated solutions such as the [TopoJson](https://github.com/topojson/topojson ) superset for specifying shared polygon edges to allow for predictable simplification results.
 
 However, these libraries are more focused on map specific use cases and highly complex. Besides, they often provide only basic control over the SVG output – resulting in rather huge markup sizes.
 
@@ -253,6 +253,7 @@ let dataUrl = SVGEO.getUrl(urlOptions)
 ### Recommendations (tools and documentations)
 * [geojson.io](https://geojson.io): A webapp to inspect and edit geojson data
 * [svg-path-editor](https://yqnn.github.io/svg-path-editor): A webapp to inspect and edit SVG pathdata
+* [mapshaper](https://mapshaper.org): sophisticated geodata conversions and simplifications
 * [wikipedia: List of map projections](https://en.wikipedia.org/wiki/List_of_map_projections)
 
 ### Related projects
