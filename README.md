@@ -22,6 +22,25 @@
 * convert/revert SVG to geoJson
 * add markers to SVG using common lon/lat coordinates
 
+## TOC
+* [Key features](#key-features)
+* [The challenges of geodata (why another library)](#the-challenges-of-geodata-why-another-library)
+  + [svgeomin might be interesting if …](#svgeomin-might-be-interesting-if)
+  + [not very suitable for you if …](#not-very-suitable-for-you-if)
+* [Usage](#usage)
+  + [CDN](#cdn)
+  + [Todos](#todos)
+  + [Basic example: render from src URL](#basic-example-render-from-src-url)
+  + [With options: Filter features and simplify](#with-options-filter-features-and-simplify)
+* [Options](#options)
+* [Topology aware simplification](#topology-aware-simplification)
+  + [erm, but I still see tiny gaps?](#erm-but-i-still-see-tiny-gaps)
+* [Demos](#demos)
+* [Credits](#credits)
+  + [Recommendations (tools and documentations)](#recommendations-tools-and-documentations)
+  + [Related projects](#related-projects)
+
+
 
 ## The challenges of geodata (why another library)
 Geojsons are most often massive – 10K+ of coordinates are rather the lower end of the scale. For reasonably sized SVG assets, geometry simplifications are rather mandatory. But when we apply these (Ramer Douglas Peucker, Visvalingam etc) for each feature (e.g country border) individually we often get gaps between polygon edges. 
